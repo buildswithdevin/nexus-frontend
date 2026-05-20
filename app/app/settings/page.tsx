@@ -1,14 +1,16 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import {
   User, Server, Sliders, Database, CheckCircle, XCircle,
   Download, Trash2, Moon, Sun, Monitor, Edit3, Save, X,
-  Image as ImageIcon, LogIn, LogOut, UserPlus, Check,
+  LogOut, Check, Loader2, AlertCircle,
 } from 'lucide-react'
 import { checkHealth, clearAllSources, exportLibrary } from '@/lib/api'
 import { useTheme, BACKGROUND_OPTIONS, type ThemeMode, type BackgroundPreset } from '@/lib/theme-context'
 import { useUser } from '@/lib/user-context'
+import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
 
 // ── Shared card wrapper ──────────────────────────────────────────────────────
 function Section({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
@@ -56,11 +58,13 @@ function Input({ value, onChange, placeholder, type = 'text' }: {
 // ── Profile Section ──────────────────────────────────────────────────────────
 function ProfileSection() {
   const { user, updateProfile } = useUser()
-  const [editing, setEditing] = useState(false)
-  const [name, setName] = useState(user.displayName)
+  const [editing,  setEditing]  = useState(false)
+  const [name,     setName]     = useState(user.displayName)
   const [username, setUsername] = useState(user.username)
-  const [email, setEmail] = useState(user.email)
-  const [saved, setSaved] = useState(false)
+  const [email,    setEmail]    = useState(user.email)
+  const [saving,   setSaving]   = useState(false)
+  const [saved,    setSaved]    = useState(false)
+  const [saveErr,  setSaveErr]  = useState('')
 
   useEffect(() => {
     setName(user.displayName)
@@ -68,12 +72,20 @@ function ProfileSection() {
     setEmail(user.email)
   }, [user])
 
-  const save = () => {
+  const save = async () => {
     if (!name.trim()) return
-    updateProfile({ displayName: name.trim(), username: username.trim(), email: email.trim() })
-    setEditing(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+    setSaving(true)
+    setSaveErr('')
+    try {
+      await updateProfile({ displayName: name.trim(), username: username.trim(), email: email.trim() })
+      setEditing(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const cancel = () => {
@@ -81,6 +93,7 @@ function ProfileSection() {
     setUsername(user.username)
     setEmail(user.email)
     setEditing(false)
+    setSaveErr('')
   }
 
   return (
@@ -100,13 +113,18 @@ function ProfileSection() {
 
       {editing ? (
         <div className="space-y-4">
+          {saveErr && (
+            <div className="flex items-center gap-2 p-3 rounded-xl text-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171' }}>
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />{saveErr}
+            </div>
+          )}
           <div>
             <Label>Display Name</Label>
             <Input value={name} onChange={setName} placeholder="Your name" />
           </div>
           <div>
             <Label>Username</Label>
-            <Input value={username} onChange={setUsername} placeholder="username" />
+            <Input value={username} onChange={v => setUsername(v.toLowerCase().replace(/[^a-z0-9_-]/g, ''))} placeholder="username" />
           </div>
           <div>
             <Label>Email</Label>
@@ -115,10 +133,11 @@ function ProfileSection() {
           <div className="flex gap-2 pt-1">
             <button
               onClick={save}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200"
+              disabled={saving}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-60"
               style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: '#fff' }}
             >
-              <Save className="w-3.5 h-3.5" /> Save Changes
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save Changes
             </button>
             <button
               onClick={cancel}
@@ -165,129 +184,42 @@ function ProfileSection() {
 
 // ── Account Section ──────────────────────────────────────────────────────────
 function AccountSection() {
-  const { user, isLoggedIn, login, logout } = useUser()
-  const [mode, setMode] = useState<'view' | 'login' | 'signup'>('view')
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
+  const { user, logout } = useAuth()
+  const router = useRouter()
 
-  const handleLogin = () => {
-    if (!email.trim()) { setError('Email is required'); return }
-    login(email.split('@')[0] || 'User', email.trim())
-    setSuccess('Signed in successfully.')
-    setMode('view')
-    setError('')
-    setTimeout(() => setSuccess(''), 3000)
-  }
-
-  const handleSignup = () => {
-    if (!name.trim() || !email.trim()) { setError('Name and email are required'); return }
-    login(name.trim(), email.trim())
-    setSuccess('Account created! Welcome to NEXUS.')
-    setMode('view')
-    setError('')
-    setTimeout(() => setSuccess(''), 3000)
-  }
-
-  const handleLogout = () => {
+  const handleSignOut = () => {
     logout()
-    setSuccess('Signed out.')
-    setTimeout(() => setSuccess(''), 3000)
+    router.push('/login')
   }
 
   return (
-    <Section icon={LogIn} title="Account">
-      {success && (
-        <div className="flex items-center gap-2 p-3 rounded-xl mb-4 text-sm" style={{ background: 'rgba(52,211,153,0.1)', color: '#34d399' }}>
-          <Check className="w-4 h-4 flex-shrink-0" /> {success}
-        </div>
-      )}
-
-      {isLoggedIn ? (
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 p-4 rounded-xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)' }}>
-            <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}>
-              {user.avatarInitial}
-            </div>
-            <div>
-              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{user.displayName}</p>
-              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Local account · NEXUS</p>
-            </div>
-            <div className="ml-auto">
-              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(52,211,153,0.1)', color: '#34d399' }}>Active</span>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200"
-            style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }}
+    <Section icon={LogOut} title="Account">
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 p-4 rounded-xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)' }}>
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+            style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}
           >
-            <LogOut className="w-3.5 h-3.5" /> Sign Out
-          </button>
-        </div>
-      ) : mode === 'view' ? (
-        <div className="space-y-3">
-          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Sign in or create a local account to personalize NEXUS and keep your library private.</p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setMode('login')}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200"
-              style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: '#fff' }}
-            >
-              <LogIn className="w-3.5 h-3.5" /> Sign In
-            </button>
-            <button
-              onClick={() => setMode('signup')}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200"
-              style={{ background: 'var(--purple-bg)', color: 'var(--purple-text)' }}
-            >
-              <UserPlus className="w-3.5 h-3.5" /> Create Account
-            </button>
+            {user?.display_name?.[0]?.toUpperCase() ?? user?.username?.[0]?.toUpperCase() ?? '?'}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{user?.display_name || user?.username}</p>
+            <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{user?.email}</p>
+          </div>
+          <div className="ml-auto flex-shrink-0">
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(52,211,153,0.1)', color: '#34d399' }}>Active</span>
           </div>
         </div>
-      ) : (
-        <div className="space-y-4">
-          <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-            {mode === 'login' ? 'Sign In' : 'Create Account'}
-          </p>
-          {error && <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>{error}</p>}
-          {mode === 'signup' && (
-            <div>
-              <Label>Display Name</Label>
-              <Input value={name} onChange={setName} placeholder="Your name" />
-            </div>
-          )}
-          <div>
-            <Label>Email</Label>
-            <Input value={email} onChange={setEmail} placeholder="you@example.com" type="email" />
-          </div>
-          <div>
-            <Label>Password</Label>
-            <Input value={password} onChange={setPassword} placeholder="••••••••" type="password" />
-          </div>
-          <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
-            Your data stays local on this device — no server required.
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={mode === 'login' ? handleLogin : handleSignup}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
-              style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: '#fff' }}
-            >
-              {mode === 'login' ? <><LogIn className="w-3.5 h-3.5" /> Sign In</> : <><UserPlus className="w-3.5 h-3.5" /> Create</>}
-            </button>
-            <button
-              onClick={() => { setMode('view'); setError('') }}
-              className="px-4 py-2 rounded-lg text-sm font-medium"
-              style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+        <button
+          onClick={handleSignOut}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200"
+          style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }}
+          onMouseOver={e => (e.currentTarget.style.background = 'rgba(248,113,113,0.18)')}
+          onMouseOut={e => (e.currentTarget.style.background = 'rgba(248,113,113,0.1)')}
+        >
+          <LogOut className="w-3.5 h-3.5" /> Sign Out
+        </button>
+      </div>
     </Section>
   )
 }

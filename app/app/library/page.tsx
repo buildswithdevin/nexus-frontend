@@ -5,7 +5,6 @@ import { Search, BookOpen, Plus, SlidersHorizontal, X, Pin } from 'lucide-react'
 import Link from 'next/link'
 import SourceCard from '@/components/SourceCard'
 import { getSites, type Source } from '@/lib/api'
-import { MOCK_SOURCES } from '@/lib/mockData'
 
 const ALL_CATEGORIES = [
   'All', 'AI & ML', 'Development', 'Cybersecurity', 'Robotics',
@@ -18,24 +17,27 @@ type SortKey = 'newest' | 'oldest' | 'az' | 'pinned'
 export default function LibraryPage() {
   const [sources,      setSources]      = useState<Source[]>([])
   const [loading,      setLoading]      = useState(true)
-  const [usingMock,    setUsingMock]    = useState(false)
+  const [error,        setError]        = useState(false)
   const [searchQuery,  setSearchQuery]  = useState('')
   const [activeFilter, setActiveFilter] = useState('All')
   const [sortKey,      setSortKey]      = useState<SortKey>('newest')
   const [showFilters,  setShowFilters]  = useState(false)
   const [pinnedOnly,   setPinnedOnly]   = useState(false)
 
-  useEffect(() => {
+  const loadSources = () => {
+    setLoading(true)
+    setError(false)
     getSites().then(data => {
-      if (data && data.length > 0) {
+      if (data !== null) {
         setSources(data)
       } else {
-        setSources(MOCK_SOURCES as Source[])
-        setUsingMock(true)
+        setError(true)
       }
       setLoading(false)
     })
-  }, [])
+  }
+
+  useEffect(() => { loadSources() }, [])
 
   function handleDelete(id: string) {
     setSources(prev => prev.filter(s => s.id !== id))
@@ -86,7 +88,7 @@ export default function LibraryPage() {
         <div>
           <h1 className="text-2xl font-bold text-white mb-1">Your Library</h1>
           <p className="text-sm" style={{ color: '#6b7280' }}>
-            {loading ? 'Loading…' : `${sources.length} source${sources.length !== 1 ? 's' : ''}${usingMock ? ' (demo)' : ''}${pinnedCount > 0 ? ` · ${pinnedCount} pinned` : ''}`}
+            {loading ? 'Loading…' : error ? 'Could not load library' : `${sources.length} source${sources.length !== 1 ? 's' : ''}${pinnedCount > 0 ? ` · ${pinnedCount} pinned` : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -202,6 +204,23 @@ export default function LibraryPage() {
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="h-52 rounded-2xl animate-pulse" style={{ background: '#0f0f24' }} />
           ))}
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'rgba(239,68,68,0.1)' }}>
+            <BookOpen className="w-8 h-8" style={{ color: '#f87171' }} />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">Backend not reachable</h3>
+          <p className="text-sm mb-6 max-w-sm" style={{ color: '#9ca3af' }}>
+            Could not connect to {process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}. Make sure the backend is running.
+          </p>
+          <button
+            onClick={loadSources}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90"
+            style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}
+          >
+            Retry
+          </button>
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">

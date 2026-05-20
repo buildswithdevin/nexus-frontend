@@ -6,7 +6,7 @@ import {
   Home, BookOpen, FolderOpen, Plus, MessageSquare,
   Settings, Sparkles, Star, Tag, Clock, Compass,
 } from 'lucide-react'
-import { useUser } from '@/lib/user-context'
+import { useAuth } from '@/lib/auth-context'
 
 const mainNav = [
   { icon: Home,          label: 'Home',        href: '/app' },
@@ -67,7 +67,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 export default function Sidebar() {
-  const { user } = useUser()
+  const { user } = useAuth()
 
   return (
     <aside
@@ -124,11 +124,11 @@ export default function Sidebar() {
               className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
               style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}
             >
-              {user.avatarInitial}
+              {user?.display_name?.[0]?.toUpperCase() ?? user?.username?.[0]?.toUpperCase() ?? '?'}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{user.displayName}</p>
-              <p className="text-xs truncate" style={{ color: 'var(--text-dim)' }}>{user.email}</p>
+              <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{user?.display_name || user?.username}</p>
+              <p className="text-xs truncate" style={{ color: 'var(--text-dim)' }}>{user?.email}</p>
             </div>
           </Link>
         </div>

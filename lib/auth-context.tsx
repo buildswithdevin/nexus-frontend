@@ -1,64 +1,94 @@
 'use client'
 
-/**
- * Auth context placeholder — ready for Supabase / NextAuth integration.
- *
- * Current state: single-user local mode (no login required).
- * When adding auth:
- *   1. Install @supabase/supabase-js or next-auth
- *   2. Replace the stub below with a real session/user provider
- *   3. Gate protected routes in app/app/layout.tsx
- */
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
+import { authLogin, authSignup, authGetMe, authUpdateMe, setToken, clearToken, getToken, type AuthUser } from './api'
 
-import { createContext, useContext, ReactNode } from 'react'
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface User {
-  id:        string
-  email:     string | null
-  name:      string | null
-  avatarUrl: string | null
-}
-
-interface AuthState {
-  user:       User | null
+export interface AuthState {
+  user:       AuthUser | null
   isLoading:  boolean
   isLoggedIn: boolean
-  /** Placeholder — wire up to your auth provider */
-  signIn:  (email: string, password: string) => Promise<void>
-  signOut: () => Promise<void>
+  login:      (email: string, password: string) => Promise<void>
+  signup:     (displayName: string, username: string, email: string, password: string) => Promise<void>
+  logout:     () => void
+  updateMe:   (updates: { display_name?: string; username?: string; email?: string }) => Promise<void>
 }
 
-const DEFAULT_USER: User = {
-  id:        'local-user',
-  email:     null,
-  name:      'You',
-  avatarUrl: null,
-}
+// ── Context ───────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthState>({
-  user:       DEFAULT_USER,
-  isLoading:  false,
-  isLoggedIn: true,
-  signIn:     async () => {},
-  signOut:    async () => {},
+  user:       null,
+  isLoading:  true,
+  isLoggedIn: false,
+  login:      async () => {},
+  signup:     async () => {},
+  logout:     () => {},
+  updateMe:   async () => {},
 })
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  // TODO: replace this stub with real auth (Supabase, NextAuth, Clerk, etc.)
-  const value: AuthState = {
-    user:       DEFAULT_USER,
-    isLoading:  false,
-    isLoggedIn: true,
-    signIn:     async (_email: string, _password: string) => {
-      // await supabase.auth.signInWithPassword({ email, password })
-      throw new Error('Auth not implemented yet')
-    },
-    signOut: async () => {
-      // await supabase.auth.signOut()
-    },
-  }
+// ── Provider ──────────────────────────────────────────────────────────────────
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser]         = useState<AuthUser | null>(null)
+  const [isLoading, setLoading] = useState(true)
+
+  // Rehydrate from stored token on mount
+  useEffect(() => {
+    const token = getToken()
+    if (!token) {
+      setLoading(false)
+      return
+    }
+    authGetMe().then(me => {
+      setUser(me)
+      setLoading(false)
+    })
+  }, [])
+
+  const login = useCallback(async (email: string, password: string) => {
+    const data = await authLogin(email, password)
+    setToken(data.token)
+    setUser(data.user)
+  }, [])
+
+  const signup = useCallback(async (
+    display_name: string,
+    username:     string,
+    email:        string,
+    password:     string,
+  ) => {
+    const data = await authSignup({ display_name, username, email, password })
+    setToken(data.token)
+    setUser(data.user)
+  }, [])
+
+  const logout = useCallback(() => {
+    clearToken()
+    setUser(null)
+  }, [])
+
+  const updateMe = useCallback(async (updates: { display_name?: string; username?: string; email?: string }) => {
+    const result = await authUpdateMe(updates)
+    if (result) {
+      setToken(result.token)
+      setUser(result.user)
+    }
+  }, [])
+
+  return (
+    <AuthContext.Provider value={{
+      user,
+      isLoading,
+      isLoggedIn: !!user,
+      login,
+      signup,
+      logout,
+      updateMe,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
 
 export function useAuth(): AuthState {

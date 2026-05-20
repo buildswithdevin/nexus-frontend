@@ -1,5 +1,43 @@
 export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '')
 
+// ── Token storage ─────────────────────────────────────────────────────────────
+
+const TOKEN_KEY = 'nexus-token'
+
+export function getToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token)
+  // Also set a cookie for Next.js middleware to read
+  const maxAge = 60 * 60 * 24 * 30 // 30 days
+  document.cookie = `nexus-token=${token}; path=/; max-age=${maxAge}; SameSite=Lax`
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY)
+  document.cookie = 'nexus-token=; path=/; max-age=0; SameSite=Lax'
+}
+
+// ── Authenticated fetch ───────────────────────────────────────────────────────
+
+function authHeaders(): HeadersInit {
+  const token = getToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    headers: {
+      ...authHeaders(),
+      ...(init.headers || {}),
+    },
+  })
+}
+
 export interface Source {
   id: string
   title: string
@@ -102,7 +140,7 @@ export async function getSites(params?: { pinned?: boolean; category?: string; l
     const q = new URLSearchParams({ limit: String(params?.limit ?? 500) })
     if (params?.pinned !== undefined) q.set('pinned', String(params.pinned))
     if (params?.category) q.set('category', params.category)
-    const res = await fetch(`${API_BASE}/api/sites?${q}`, { cache: 'no-store' })
+    const res = await apiFetch(`${API_BASE}/api/sites?${q}`, { cache: 'no-store' })
     if (!res.ok) throw new Error('Failed')
     const data = await res.json()
     return data.sites as Source[]
@@ -113,7 +151,7 @@ export async function getSites(params?: { pinned?: boolean; category?: string; l
 
 export async function getSite(id: string): Promise<Source | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/sites/${id}`, { cache: 'no-store' })
+    const res = await apiFetch(`${API_BASE}/api/sites/${id}`, { cache: 'no-store' })
     if (!res.ok) return null
     return await res.json()
   } catch {
@@ -123,7 +161,7 @@ export async function getSite(id: string): Promise<Source | null> {
 
 export async function updateSite(id: string, updates: Partial<Pick<Source, 'title' | 'description' | 'notes' | 'tags' | 'category' | 'pinned' | 'technologies' | 'topics'>>): Promise<Source | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/sites/${id}`, {
+    const res = await apiFetch(`${API_BASE}/api/sites/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -137,7 +175,7 @@ export async function updateSite(id: string, updates: Partial<Pick<Source, 'titl
 
 export async function deleteSite(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/sites/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API_BASE}/api/sites/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -155,7 +193,7 @@ export async function ingestSource(payload: {
   category?: string
   notes?: string
 }): Promise<IngestResponse> {
-  const res = await fetch(`${API_BASE}/api/ingest`, {
+  const res = await apiFetch(`${API_BASE}/api/ingest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -172,7 +210,7 @@ export async function ingestSource(payload: {
 export async function searchLibrary(query: string): Promise<CommandSearchResult | null> {
   // 1. Semantic search (local embeddings)
   try {
-    const res = await fetch(`${API_BASE}/api/search/semantic`, {
+    const res = await apiFetch(`${API_BASE}/api/search/semantic`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, limit: 10, min_score: 0.1 }),
@@ -189,7 +227,7 @@ export async function searchLibrary(query: string): Promise<CommandSearchResult 
 
   // 2. Keyword fallback
   try {
-    const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}&limit=10`, { cache: 'no-store' })
+    const res = await apiFetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}&limit=10`, { cache: 'no-store' })
     if (res.ok) {
       const data = await res.json()
       return { command: query, interpretation: '', insight: '', total: data.total, results: data.results }
@@ -203,7 +241,7 @@ export async function searchLibrary(query: string): Promise<CommandSearchResult 
 
 export async function askLibrary(query: string): Promise<AskResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/search/ask`, {
+    const res = await apiFetch(`${API_BASE}/api/search/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, limit: 8 }),
@@ -221,7 +259,7 @@ export async function askLibrary(query: string): Promise<AskResponse | null> {
 
 export async function getClusters(): Promise<Cluster[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/clusters`, { cache: 'no-store' })
+    const res = await apiFetch(`${API_BASE}/api/clusters`, { cache: 'no-store' })
     if (!res.ok) return []
     const data = await res.json()
     return data.clusters as Cluster[]
@@ -232,7 +270,7 @@ export async function getClusters(): Promise<Cluster[]> {
 
 export async function getEnrichedClusters(): Promise<EnrichedCluster[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/clusters/enriched`, { cache: 'no-store' })
+    const res = await apiFetch(`${API_BASE}/api/clusters/enriched`, { cache: 'no-store' })
     if (!res.ok) return []
     const data = await res.json()
     return data.clusters as EnrichedCluster[]
@@ -243,7 +281,7 @@ export async function getEnrichedClusters(): Promise<EnrichedCluster[]> {
 
 export async function addSourceToCluster(clusterId: string, siteId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/clusters/${clusterId}/sources/${siteId}`, { method: 'POST' })
+    const res = await apiFetch(`${API_BASE}/api/clusters/${clusterId}/sources/${siteId}`, { method: 'POST' })
     return res.ok
   } catch {
     return false
@@ -252,7 +290,7 @@ export async function addSourceToCluster(clusterId: string, siteId: string): Pro
 
 export async function removeSourceFromCluster(clusterId: string, siteId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/clusters/${clusterId}/sources/${siteId}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API_BASE}/api/clusters/${clusterId}/sources/${siteId}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -261,7 +299,7 @@ export async function removeSourceFromCluster(clusterId: string, siteId: string)
 
 export async function reassignSourceCollection(siteId: string): Promise<CollectionAssignment | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/clusters/reassign-source/${siteId}`, { method: 'POST' })
+    const res = await apiFetch(`${API_BASE}/api/clusters/reassign-source/${siteId}`, { method: 'POST' })
     if (!res.ok) return null
     const data = await res.json()
     return data.collection
@@ -272,7 +310,7 @@ export async function reassignSourceCollection(siteId: string): Promise<Collecti
 
 export async function createCluster(payload: { name: string; description?: string; color?: string; site_ids?: string[] }): Promise<Cluster | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/clusters`, {
+    const res = await apiFetch(`${API_BASE}/api/clusters`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -286,7 +324,7 @@ export async function createCluster(payload: { name: string; description?: strin
 
 export async function updateCluster(id: string, updates: Partial<{ name: string; description: string; color: string; site_ids: string[] }>): Promise<Cluster | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/clusters/${id}`, {
+    const res = await apiFetch(`${API_BASE}/api/clusters/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -300,7 +338,7 @@ export async function updateCluster(id: string, updates: Partial<{ name: string;
 
 export async function deleteCluster(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/clusters/${id}`, { method: 'DELETE' })
+    const res = await apiFetch(`${API_BASE}/api/clusters/${id}`, { method: 'DELETE' })
     return res.ok
   } catch {
     return false
@@ -309,7 +347,7 @@ export async function deleteCluster(id: string): Promise<boolean> {
 
 export async function autoOrganizeClusters(): Promise<{ clusters: Cluster[]; message: string } | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/clusters/auto-organize`, {
+    const res = await apiFetch(`${API_BASE}/api/clusters/auto-organize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     })
@@ -324,7 +362,7 @@ export async function autoOrganizeClusters(): Promise<{ clusters: Cluster[]; mes
 
 export async function getInsights(): Promise<InsightsResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/insights`, { cache: 'no-store' })
+    const res = await apiFetch(`${API_BASE}/api/insights`, { cache: 'no-store' })
     if (!res.ok) return null
     return await res.json()
   } catch {
@@ -336,7 +374,7 @@ export async function getInsights(): Promise<InsightsResponse | null> {
 
 export async function checkHealth(): Promise<{ ok: boolean; vectors?: number }> {
   try {
-    const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' })
+    const res = await apiFetch(`${API_BASE}/health`, { cache: 'no-store' })
     if (!res.ok) return { ok: false }
     const data = await res.json()
     return { ok: data.status === 'ok', vectors: data.chroma_vectors }
@@ -415,7 +453,7 @@ export interface UserProfile {
 
 export async function getDiscover(): Promise<DiscoverResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/discover`, { cache: 'no-store' })
+    const res = await apiFetch(`${API_BASE}/api/discover`, { cache: 'no-store' })
     if (!res.ok) return null
     return await res.json()
   } catch {
@@ -425,7 +463,7 @@ export async function getDiscover(): Promise<DiscoverResponse | null> {
 
 export async function searchDiscover(query: string): Promise<DiscoverSearchResult | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/discover/search?q=${encodeURIComponent(query)}`, { cache: 'no-store' })
+    const res = await apiFetch(`${API_BASE}/api/discover/search?q=${encodeURIComponent(query)}`, { cache: 'no-store' })
     if (!res.ok) return null
     return await res.json()
   } catch {
@@ -442,7 +480,7 @@ export async function sendFeedback(
   action: 'like' | 'dislike' | 'save' | 'dismiss',
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/profile/feedback`, {
+    const res = await apiFetch(`${API_BASE}/api/profile/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ topic, category, tags, action }),
@@ -455,7 +493,7 @@ export async function sendFeedback(
 
 export async function recordQueryIntent(query: string): Promise<void> {
   try {
-    await fetch(`${API_BASE}/api/profile/query-intent`, {
+    await apiFetch(`${API_BASE}/api/profile/query-intent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query }),
@@ -489,7 +527,7 @@ export interface CompareResponse {
 
 export async function compareQuery(query: string): Promise<CompareResponse | null> {
   try {
-    const res = await fetch(`${API_BASE}/search/compare`, {
+    const res = await apiFetch(`${API_BASE}/search/compare`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query }),
@@ -503,7 +541,7 @@ export async function compareQuery(query: string): Promise<CompareResponse | nul
 
 export async function clearAllSources(): Promise<{ deleted: number; message: string } | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/sites/clear-all`, { method: 'POST' })
+    const res = await apiFetch(`${API_BASE}/api/sites/clear-all`, { method: 'POST' })
     if (!res.ok) return null
     return await res.json()
   } catch {
@@ -513,10 +551,88 @@ export async function clearAllSources(): Promise<{ deleted: number; message: str
 
 export async function exportLibrary(): Promise<Blob | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/export`)
+    const res = await apiFetch(`${API_BASE}/api/export`)
     if (!res.ok) return null
     return await res.blob()
   } catch {
     return null
+  }
+}
+
+// ── Auth API ──────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id:           string
+  username:     string
+  email:        string
+  display_name: string
+  created_at:   string
+}
+
+export interface AuthResponse {
+  token:      string
+  token_type: string
+  user:       AuthUser
+}
+
+export async function authSignup(payload: {
+  display_name: string
+  username:     string
+  email:        string
+  password:     string
+}): Promise<AuthResponse> {
+  const res = await fetch(`${API_BASE}/api/auth/signup`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Signup failed' }))
+    throw new Error(err.detail || 'Signup failed')
+  }
+  return res.json()
+}
+
+export async function authLogin(email: string, password: string): Promise<AuthResponse> {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ email, password }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Login failed' }))
+    throw new Error(err.detail || 'Login failed')
+  }
+  return res.json()
+}
+
+export async function authGetMe(): Promise<AuthUser | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/auth/me`)
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+export async function authUpdateMe(updates: {
+  display_name?: string
+  username?:     string
+  email?:        string
+}): Promise<{ token: string; user: AuthUser } | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/auth/me`, {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(updates),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Update failed' }))
+      throw new Error(err.detail || 'Update failed')
+    }
+    return res.json()
+  } catch (e) {
+    throw e
   }
 }

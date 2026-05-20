@@ -5,9 +5,8 @@ import Link from 'next/link'
 import { BookOpen, Layers, Sparkles, MessageSquare, ArrowRight, TrendingUp, Plus } from 'lucide-react'
 import SourceCard from '@/components/SourceCard'
 import { getSites, type Source } from '@/lib/api'
-import { MOCK_SOURCES } from '@/lib/mockData'
 import { useUser } from '@/lib/user-context'
-import { Compass, RotateCcw } from 'lucide-react'
+import { Compass, RotateCcw, AlertCircle } from 'lucide-react'
 
 function getGreeting() {
   const hour = new Date().getHours()
@@ -32,21 +31,25 @@ function getUniqueCategories(sources: Source[]): string[] {
 export default function DashboardPage() {
   const { user } = useUser()
   const [sources, setSources] = useState<Source[]>([])
-  const [usingMock, setUsingMock] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState(false)
   const [recentQueries, setRecentQueries] = useState<string[]>([])
 
-  useEffect(() => {
+  const loadSites = () => {
+    setLoaded(false)
+    setError(false)
     getSites().then((data) => {
-      if (data && data.length > 0) {
+      if (data !== null) {
         setSources(data)
       } else {
-        setSources(MOCK_SOURCES as Source[])
-        setUsingMock(true)
+        setError(true)
       }
       setLoaded(true)
     })
-    // Load recent Ask NEXUS queries from localStorage
+  }
+
+  useEffect(() => {
+    loadSites()
     try {
       const stored = localStorage.getItem('nexus-recent-queries')
       if (stored) setRecentQueries(JSON.parse(stored))
@@ -65,7 +68,7 @@ export default function DashboardPage() {
       icon: BookOpen,
       iconColor: '#a78bfa',
       iconBg: 'rgba(139,92,246,0.12)',
-      change: usingMock ? 'Demo data' : `${sources.length} total`,
+      change: loaded ? `${sources.length} total` : 'Loading…',
     },
     {
       label: 'Categories',
@@ -118,6 +121,29 @@ export default function DashboardPage() {
           Add Source
         </Link>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div
+          className="flex items-center gap-3 p-4 rounded-2xl border mb-6"
+          style={{ background: 'rgba(239,68,68,0.06)', borderColor: 'rgba(239,68,68,0.2)' }}
+        >
+          <AlertCircle className="w-5 h-5 flex-shrink-0" style={{ color: '#f87171' }} />
+          <div className="flex-1">
+            <p className="text-sm font-medium" style={{ color: '#f87171' }}>Backend not reachable</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Could not connect to {process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}
+            </p>
+          </div>
+          <button
+            onClick={loadSites}
+            className="text-xs px-3 py-1.5 rounded-lg font-medium transition-all duration-200"
+            style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171' }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
