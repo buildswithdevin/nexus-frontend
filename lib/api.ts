@@ -1,5 +1,11 @@
 export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '')
 
+// ── OAuth helpers ─────────────────────────────────────────────────────────────
+
+export function oauthRedirect(provider: 'google' | 'microsoft' | 'github') {
+  window.location.href = `${API_BASE}/api/auth/${provider}`
+}
+
 // ── Token storage ─────────────────────────────────────────────────────────────
 
 const TOKEN_KEY = 'nexus-token'
