@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Search, BookOpen, Plus, SlidersHorizontal, X, Pin } from 'lucide-react'
 import Link from 'next/link'
 import SourceCard from '@/components/SourceCard'
-import { getSites, type Source } from '@/lib/api'
+import { getSites, getEnrichmentStatus, type Source, type EnrichmentStatusItem } from '@/lib/api'
 
 const ALL_CATEGORIES = [
   'All', 'AI & ML', 'Development', 'Cybersecurity', 'Robotics',
@@ -23,6 +23,44 @@ export default function LibraryPage() {
   const [sortKey,      setSortKey]      = useState<SortKey>('newest')
   const [showFilters,  setShowFilters]  = useState(false)
   const [pinnedOnly,   setPinnedOnly]   = useState(false)
+
+  const pendingIdsRef = useRef<string[]>([])
+
+  const hasPendingEnrichment = sources.some(
+    s => s.enrichment_status === 'pending' || s.enrichment_status === 'processing'
+  )
+
+  // Keep ref fresh
+  useEffect(() => {
+    pendingIdsRef.current = sources
+      .filter(s => s.enrichment_status === 'pending' || s.enrichment_status === 'processing')
+      .map(s => s.id)
+  }, [sources])
+
+  // Poll enrichment status for in-progress saves
+  useEffect(() => {
+    if (!hasPendingEnrichment) return
+    const interval = setInterval(async () => {
+      const ids = pendingIdsRef.current
+      if (!ids.length) return
+      const statuses = await getEnrichmentStatus(ids)
+      if (!statuses?.length) return
+      setSources(prev => prev.map(s => {
+        const up = statuses.find((st: EnrichmentStatusItem) => st.id === s.id)
+        if (!up) return s
+        return {
+          ...s,
+          enrichment_status: up.enrichment_status,
+          category: up.category || s.category,
+          tags: up.tags?.length ? up.tags : s.tags,
+          summary: up.summary || s.summary,
+          description: up.description || s.description,
+          enrichment_error: up.enrichment_error,
+        }
+      }))
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [hasPendingEnrichment])
 
   const loadSources = () => {
     setLoading(true)
@@ -228,14 +266,14 @@ export default function LibraryPage() {
             <BookOpen className="w-8 h-8" style={{ color: '#a78bfa' }} />
           </div>
           <h3 className="text-lg font-semibold text-white mb-2">
-            {searchQuery ? 'No results found' : pinnedOnly ? 'No pinned sources' : 'No sources saved yet'}
+            {searchQuery ? 'No results found' : pinnedOnly ? 'No pinned sources' : 'Your library is empty'}
           </h3>
           <p className="text-sm mb-6 max-w-sm" style={{ color: '#9ca3af' }}>
             {searchQuery
-              ? `No sources match "${searchQuery}".`
+              ? `Nothing matches "${searchQuery}" — try different keywords or browse by category.`
               : pinnedOnly
               ? 'Pin sources to surface them here quickly.'
-              : 'Add your first source to start building your knowledge base.'}
+              : 'Save articles, videos, tools, research, or anything worth remembering. NEXUS organizes it automatically.'}
           </p>
           {!searchQuery && !pinnedOnly && (
             <Link

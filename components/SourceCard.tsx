@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { ExternalLink, Edit2, Trash2, Pin, PinOff, X, Save, Loader2, Tag, Info } from 'lucide-react'
-import { updateSite, deleteSite, togglePin, type Source } from '@/lib/api'
+import { updateSite, deleteSite, togglePin, reanalyzeSite, type Source } from '@/lib/api'
 import SourceDetailModal from './SourceDetailModal'
 
 interface SourceCardProps {
@@ -233,6 +233,17 @@ export default function SourceCard({ source, onDelete, onUpdate }: SourceCardPro
     setEditing(false)
   }
 
+  async function handleReanalyze(e: React.MouseEvent) {
+    e.stopPropagation()
+    e.preventDefault()
+    setCurrent(prev => ({ ...prev, enrichment_status: 'pending' as const }))
+    await reanalyzeSite(current.id)
+  }
+
+  const enrichmentStatus = current.enrichment_status ?? null
+  const isAnalyzing = enrichmentStatus === 'pending' || enrichmentStatus === 'processing'
+  const analysisFailed = enrichmentStatus === 'failed'
+
   return (
     <>
       {editing && (
@@ -309,11 +320,20 @@ export default function SourceCard({ source, onDelete, onUpdate }: SourceCardPro
         </div>
 
         {/* Summary */}
-        {summary && (
+        {summary ? (
           <p className="text-xs leading-relaxed mb-3 line-clamp-2" style={{ color: 'var(--text-muted)' }}>
             {summary}
           </p>
-        )}
+        ) : isAnalyzing ? (
+          <div className="mb-3 space-y-1.5">
+            <div className="h-2.5 rounded-full animate-pulse" style={{ background: 'var(--bg-elevated)', width: '100%' }} />
+            <div className="h-2.5 rounded-full animate-pulse" style={{ background: 'var(--bg-elevated)', width: '80%' }} />
+          </div>
+        ) : analysisFailed ? (
+          <p className="text-xs mb-3" style={{ color: 'var(--text-dimmer)' }}>
+            Analysis unavailable
+          </p>
+        ) : null}
 
         {/* Tags */}
         {current.tags && current.tags.length > 0 && (
@@ -340,9 +360,33 @@ export default function SourceCard({ source, onDelete, onUpdate }: SourceCardPro
           className="flex items-center justify-between pt-3 border-t"
           style={{ borderColor: 'var(--border)' }}
         >
-          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
-            {formatDate(current.created_at)}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
+              {formatDate(current.created_at)}
+            </span>
+            {enrichmentStatus === 'processing' && (
+              <span className="flex items-center gap-1 text-xs" style={{ color: '#7c5bd0' }}>
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse inline-block" style={{ background: '#8b5cf6' }} />
+                analyzing
+              </span>
+            )}
+            {enrichmentStatus === 'pending' && (
+              <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-dimmer)' }}>
+                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: '#4b5563' }} />
+                queued
+              </span>
+            )}
+            {analysisFailed && (
+              <button
+                onClick={handleReanalyze}
+                className="flex items-center gap-1 text-xs transition-opacity hover:opacity-70"
+                style={{ color: '#d97706' }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: '#fbbf24' }} />
+                retry
+              </button>
+            )}
+          </div>
           <div
             className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
             onClick={e => e.preventDefault()}

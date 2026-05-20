@@ -59,6 +59,12 @@ export interface Source {
   pinned: boolean
   use_case: string | null
   learning_value: string | null
+  enrichment_status: 'pending' | 'processing' | 'completed' | 'failed' | null
+  enrichment_error: string | null
+  enriched_at: string | null
+  capture_method: string | null
+  content_type: string | null
+  importance_score: number | null
   created_at: string
   updated_at: string
   content_excerpt?: string
@@ -190,6 +196,59 @@ export async function deleteSite(id: string): Promise<boolean> {
 
 export async function togglePin(id: string, pinned: boolean): Promise<Source | null> {
   return updateSite(id, { pinned })
+}
+
+export interface EnrichmentStatusItem {
+  id: string
+  enrichment_status: 'pending' | 'processing' | 'completed' | 'failed'
+  title: string
+  category: string | null
+  tags: string[]
+  summary: string | null
+  description: string | null
+  enrichment_error: string | null
+}
+
+export async function getEnrichmentStatus(ids: string[]): Promise<EnrichmentStatusItem[] | null> {
+  if (!ids.length) return []
+  try {
+    const res = await apiFetch(`${API_BASE}/api/sites/enrichment-status?ids=${ids.join(',')}`, { cache: 'no-store' })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.statuses as EnrichmentStatusItem[]
+  } catch {
+    return null
+  }
+}
+
+export async function reanalyzeSite(id: string): Promise<boolean> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/sites/${id}/reanalyze`, { method: 'POST' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export interface RelatedSite {
+  id: string
+  source_id: string
+  related_source_id: string
+  relationship_type: string
+  confidence_score: number
+  reason: string | null
+  site: Source
+}
+
+export async function getRelatedSites(id: string): Promise<RelatedSite[] | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/sites/${id}/related`, { cache: 'no-store' })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.related as RelatedSite[]
+  } catch {
+    return null
+  }
 }
 
 // ── Ingest ────────────────────────────────────────────────────────────────────

@@ -9,6 +9,12 @@ const defaults = {
   pinned: false,
   use_case: null,
   learning_value: 'intermediate',
+  enrichment_status: 'completed' as const,
+  enrichment_error: null,
+  enriched_at: null,
+  capture_method: null,
+  content_type: null,
+  importance_score: null,
   updated_at: '',
 }
 
