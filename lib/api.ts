@@ -575,17 +575,31 @@ export interface AuthResponse {
   user:       AuthUser
 }
 
+function diagnoseNetworkError(err: unknown, endpoint: string): Error {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (msg.toLowerCase().includes('networkerror') || msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('load failed')) {
+    console.error(`[NEXUS] Network/CORS error calling ${endpoint}. API_BASE="${API_BASE}"`)
+    return new Error('Cannot reach the NEXUS server. This is usually a CORS or connectivity issue — check the browser console for details.')
+  }
+  return err instanceof Error ? err : new Error(msg)
+}
+
 export async function authSignup(payload: {
   display_name: string
   username:     string
   email:        string
   password:     string
 }): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/signup`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(payload),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/auth/signup`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    })
+  } catch (err) {
+    throw diagnoseNetworkError(err, '/api/auth/signup')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Signup failed' }))
     throw new Error(err.detail || 'Signup failed')
@@ -594,11 +608,16 @@ export async function authSignup(payload: {
 }
 
 export async function authLogin(email: string, password: string): Promise<AuthResponse> {
-  const res = await fetch(`${API_BASE}/api/auth/login`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ email, password }),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/auth/login`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ email, password }),
+    })
+  } catch (err) {
+    throw diagnoseNetworkError(err, '/api/auth/login')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Login failed' }))
     throw new Error(err.detail || 'Login failed')
