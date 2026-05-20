@@ -7,9 +7,15 @@ import SourceCard from '@/components/SourceCard'
 import { getSites, getEnrichmentStatus, type Source, type EnrichmentStatusItem } from '@/lib/api'
 
 const ALL_CATEGORIES = [
-  'All', 'AI & ML', 'Development', 'Cybersecurity', 'Robotics',
-  'Productivity', 'Research', 'Design', 'Data Science', 'Hardware',
-  'Article', 'Documentation', 'Course', 'Tool', 'Video', 'Note', 'Other',
+  'All',
+  // Technical
+  'AI & ML', 'Development', 'Cybersecurity', 'Robotics', 'Embedded Systems',
+  'Design', 'Data Science', 'Cloud & DevOps', 'Hardware',
+  // Knowledge
+  'Research', 'Productivity', 'Education',
+  // General
+  'News & Media', 'Food & Cooking', 'Health & Wellness',
+  'Science', 'Business & Finance', 'Entertainment', 'Other',
 ]
 
 type SortKey = 'newest' | 'oldest' | 'az' | 'pinned'
