@@ -1,0 +1,222 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+/* ── DARK THEME (default) ──────────────────────────────── */
+:root {
+  --bg-primary:   #06060f;
+  --bg-secondary: #0a0a18;
+  --bg-card:      #0f0f24;
+  --bg-elevated:  #16162e;
+  --bg-surface:   #1e1e3a;
+  --border:       rgba(255,255,255,0.07);
+  --border-hover: rgba(139,92,246,0.3);
+  --text-primary:   #ffffff;
+  --text-secondary: #d1d5db;
+  --text-muted:     #9ca3af;
+  --text-dim:       #6b7280;
+  --text-dimmer:    #4b5563;
+  --purple-bg:      rgba(139,92,246,0.12);
+  --purple-bg-hover:rgba(139,92,246,0.18);
+  --purple-border:  rgba(139,92,246,0.25);
+  --purple-text:    #a78bfa;
+  --scrollbar-track:#06060f;
+  --scrollbar-thumb:#16162e;
+  --scrollbar-hover:#1e1e3a;
+  --input-bg:     #06060f;
+  --modal-overlay:rgba(0,0,0,0.6);
+}
+
+/* ── LIGHT THEME ───────────────────────────────────────── */
+html.light {
+  --bg-primary:   #f0eeff;
+  --bg-secondary: #e8e4ff;
+  --bg-card:      #ffffff;
+  --bg-elevated:  #f7f5ff;
+  --bg-surface:   #ede9ff;
+  --border:       rgba(100,80,200,0.12);
+  --border-hover: rgba(139,92,246,0.4);
+  --text-primary:   #0f0224;
+  --text-secondary: #1f1044;
+  --text-muted:     #4b5563;
+  --text-dim:       #6b7280;
+  --text-dimmer:    #9ca3af;
+  --purple-bg:      rgba(139,92,246,0.08);
+  --purple-bg-hover:rgba(139,92,246,0.14);
+  --purple-border:  rgba(139,92,246,0.2);
+  --purple-text:    #7c3aed;
+  --scrollbar-track:#e8e4ff;
+  --scrollbar-thumb:#c4b5fd;
+  --scrollbar-hover:#a78bfa;
+  --input-bg:     #f7f5ff;
+  --modal-overlay:rgba(10,2,36,0.5);
+}
+
+@theme {
+  --color-base-950: #06060f;
+  --color-base-900: #0a0a18;
+  --color-base-800: #0f0f24;
+  --color-base-700: #16162e;
+  --color-base-600: #1e1e3a;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+  --color-violet-600: #7c3aed;
+  --color-violet-700: #6d28d9;
+  --color-indigo-500: #6366f1;
+  --color-surface: #12122a;
+  --color-border: rgba(255,255,255,0.07);
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --background-image-gradient-violet: linear-gradient(135deg, #8b5cf6, #6366f1);
+  --background-image-gradient-hero: radial-gradient(ellipse at 50% 0%, rgba(139,92,246,0.15) 0%, transparent 70%);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  min-height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+}
+
+.glow-violet {
+  box-shadow: 0 0 40px rgba(139, 92, 246, 0.15);
+}
+
+.glow-violet-strong {
+  box-shadow: 0 0 60px rgba(139, 92, 246, 0.25);
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #a78bfa, #6366f1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+}
+
+.hero-glow {
+  background: radial-gradient(ellipse at 50% 0%, rgba(139, 92, 246, 0.2) 0%, transparent 70%);
+}
+
+.card-hover {
+  transition: all 0.2s ease;
+}
+
+.card-hover:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.1);
+}
+
+/* ── Landing page animations ────────────────────── */
+@keyframes wt-fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes wt-slideIn {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes wt-scalePop {
+  0%   { transform: scale(0.7); opacity: 0; }
+  70%  { transform: scale(1.06); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes ctaGlow {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1; }
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Background overlay for custom backgrounds ─ */
+.nexus-bg-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.nexus-bg-overlay + * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Calming built-in backgrounds ─────────────── */
+.bg-preset-mountain {
+  background: linear-gradient(160deg, #1a0533 0%, #0a1830 45%, #0c1f14 100%);
+}
+.bg-preset-ocean {
+  background: linear-gradient(180deg, #0c1445 0%, #0d3155 40%, #0a2337 100%);
+}
+.bg-preset-forest {
+  background: linear-gradient(160deg, #091e12 0%, #0e2c1a 50%, #071610 100%);
+}
+.bg-preset-night-sky {
+  background: radial-gradient(ellipse at 30% 20%, #1a0a40 0%, #04000a 60%, #000208 100%);
+}
+.bg-preset-aurora {
+  background: linear-gradient(135deg, #0a0a20 0%, #1a0533 20%, #002b2b 60%, #0a0a18 100%);
+}
+.bg-preset-sunset {
+  background: linear-gradient(160deg, #1a0a00 0%, #200814 40%, #0f0324 100%);
+}
+.bg-preset-glass {
+  background: #080818;
+}
+
+/* ── Light mode overrides for common patterns ── */
+html.light .card-hover:hover {
+  border-color: rgba(139, 92, 246, 0.25);
+  box-shadow: 0 4px 24px rgba(139, 92, 246, 0.1);
+}
+
+html.light select option {
+  background: #f0eeff;
+  color: #0f0224;
+}

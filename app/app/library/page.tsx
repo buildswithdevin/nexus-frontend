@@ -1,0 +1,253 @@
+'use client'
+
+import { useState, useEffect, useMemo } from 'react'
+import { Search, BookOpen, Plus, SlidersHorizontal, X, Pin } from 'lucide-react'
+import Link from 'next/link'
+import SourceCard from '@/components/SourceCard'
+import { getSites, type Source } from '@/lib/api'
+import { MOCK_SOURCES } from '@/lib/mockData'
+
+const ALL_CATEGORIES = [
+  'All', 'AI & ML', 'Development', 'Cybersecurity', 'Robotics',
+  'Productivity', 'Research', 'Design', 'Data Science', 'Hardware',
+  'Article', 'Documentation', 'Course', 'Tool', 'Video', 'Note', 'Other',
+]
+
+type SortKey = 'newest' | 'oldest' | 'az' | 'pinned'
+
+export default function LibraryPage() {
+  const [sources,      setSources]      = useState<Source[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [usingMock,    setUsingMock]    = useState(false)
+  const [searchQuery,  setSearchQuery]  = useState('')
+  const [activeFilter, setActiveFilter] = useState('All')
+  const [sortKey,      setSortKey]      = useState<SortKey>('newest')
+  const [showFilters,  setShowFilters]  = useState(false)
+  const [pinnedOnly,   setPinnedOnly]   = useState(false)
+
+  useEffect(() => {
+    getSites().then(data => {
+      if (data && data.length > 0) {
+        setSources(data)
+      } else {
+        setSources(MOCK_SOURCES as Source[])
+        setUsingMock(true)
+      }
+      setLoading(false)
+    })
+  }, [])
+
+  function handleDelete(id: string) {
+    setSources(prev => prev.filter(s => s.id !== id))
+  }
+
+  function handleUpdate(updated: Source) {
+    setSources(prev => prev.map(s => s.id === updated.id ? updated : s))
+  }
+
+  const filtered = useMemo(() => {
+    let list = [...sources]
+
+    if (pinnedOnly) list = list.filter(s => s.pinned)
+    if (activeFilter !== 'All') list = list.filter(s => s.category === activeFilter)
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      list = list.filter(s =>
+        s.title.toLowerCase().includes(q) ||
+        (s.summary ?? '').toLowerCase().includes(q) ||
+        (s.description ?? '').toLowerCase().includes(q) ||
+        (s.notes ?? '').toLowerCase().includes(q) ||
+        (s.tags ?? []).some(t => t.toLowerCase().includes(q)) ||
+        (s.topics ?? []).some(t => t.toLowerCase().includes(q))
+      )
+    }
+
+    switch (sortKey) {
+      case 'newest': list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()); break
+      case 'oldest': list.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()); break
+      case 'az':     list.sort((a, b) => a.title.localeCompare(b.title)); break
+      case 'pinned': list.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)); break
+    }
+
+    return list
+  }, [sources, searchQuery, activeFilter, sortKey, pinnedOnly])
+
+  const usedCategories = useMemo(() => {
+    const cats = new Set(sources.map(s => s.category).filter(Boolean))
+    return ALL_CATEGORIES.filter(c => c === 'All' || cats.has(c))
+  }, [sources])
+
+  const pinnedCount = sources.filter(s => s.pinned).length
+
+  return (
+    <div className="p-6 max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white mb-1">Your Library</h1>
+          <p className="text-sm" style={{ color: '#6b7280' }}>
+            {loading ? 'Loading…' : `${sources.length} source${sources.length !== 1 ? 's' : ''}${usingMock ? ' (demo)' : ''}${pinnedCount > 0 ? ` · ${pinnedCount} pinned` : ''}`}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowFilters(f => !f)}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 hover:bg-white/5"
+            style={{
+              background: showFilters ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.04)',
+              color: showFilters ? '#a78bfa' : '#9ca3af',
+              border: '1px solid',
+              borderColor: showFilters ? 'rgba(139,92,246,0.3)' : 'rgba(255,255,255,0.07)',
+            }}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            Filters
+          </button>
+          <Link
+            href="/app/add"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all duration-200 hover:opacity-90"
+            style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}
+          >
+            <Plus className="w-4 h-4" />
+            Add Source
+          </Link>
+        </div>
+      </div>
+
+      {/* Search bar */}
+      <div
+        className="flex items-center gap-3 mb-4 px-4 py-3 rounded-xl border transition-all duration-200 focus-within:border-violet-500/40"
+        style={{ background: '#0f0f24', borderColor: 'rgba(255,255,255,0.07)' }}
+      >
+        <Search className="w-4 h-4 flex-shrink-0" style={{ color: '#6b7280' }} />
+        <input
+          type="text"
+          placeholder="Search titles, summaries, tags, notes…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          className="flex-1 bg-transparent text-sm text-white placeholder-gray-600 outline-none"
+        />
+        {searchQuery && (
+          <button onClick={() => setSearchQuery('')} className="flex-shrink-0 hover:bg-white/10 p-0.5 rounded">
+            <X className="w-3.5 h-3.5" style={{ color: '#9ca3af' }} />
+          </button>
+        )}
+      </div>
+
+      {/* Filter panel */}
+      {showFilters && (
+        <div
+          className="mb-4 p-4 rounded-xl border space-y-3"
+          style={{ background: '#0a0a18', borderColor: 'rgba(255,255,255,0.06)' }}
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#6b7280' }}>Sort</p>
+            <div className="flex items-center gap-1.5">
+              {(['newest', 'oldest', 'az', 'pinned'] as SortKey[]).map(k => (
+                <button
+                  key={k}
+                  onClick={() => setSortKey(k)}
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all duration-200"
+                  style={sortKey === k
+                    ? { background: 'rgba(139,92,246,0.2)', color: '#a78bfa' }
+                    : { background: 'rgba(255,255,255,0.04)', color: '#9ca3af' }
+                  }
+                >
+                  {k === 'newest' ? 'Newest' : k === 'oldest' ? 'Oldest' : k === 'az' ? 'A→Z' : 'Pinned first'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setPinnedOnly(p => !p)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200"
+              style={pinnedOnly
+                ? { background: 'rgba(251,191,36,0.15)', color: '#fbbf24' }
+                : { background: 'rgba(255,255,255,0.04)', color: '#9ca3af' }
+              }
+            >
+              <Pin className="w-3 h-3" />
+              Pinned only
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Category tabs */}
+      <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-1 scrollbar-hide">
+        {usedCategories.map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveFilter(tab)}
+            className="flex-shrink-0 px-3.5 py-1.5 rounded-full text-xs font-medium transition-all duration-200"
+            style={activeFilter === tab
+              ? { background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: '#fff', boxShadow: '0 0 14px rgba(139,92,246,0.3)' }
+              : { background: 'rgba(255,255,255,0.04)', color: '#9ca3af' }
+            }
+          >
+            {tab}
+            {tab !== 'All' && (
+              <span className="ml-1.5 opacity-60">
+                {sources.filter(s => s.category === tab).length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-52 rounded-2xl animate-pulse" style={{ background: '#0f0f24' }} />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'rgba(139,92,246,0.1)' }}>
+            <BookOpen className="w-8 h-8" style={{ color: '#a78bfa' }} />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">
+            {searchQuery ? 'No results found' : pinnedOnly ? 'No pinned sources' : 'No sources saved yet'}
+          </h3>
+          <p className="text-sm mb-6 max-w-sm" style={{ color: '#9ca3af' }}>
+            {searchQuery
+              ? `No sources match "${searchQuery}".`
+              : pinnedOnly
+              ? 'Pin sources to surface them here quickly.'
+              : 'Add your first source to start building your knowledge base.'}
+          </p>
+          {!searchQuery && !pinnedOnly && (
+            <Link
+              href="/app/add"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90"
+              style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}
+            >
+              <Plus className="w-4 h-4" />
+              Add your first source
+            </Link>
+          )}
+        </div>
+      ) : (
+        <>
+          <p className="text-xs mb-4" style={{ color: '#6b7280' }}>
+            Showing {filtered.length} of {sources.length} source{sources.length !== 1 ? 's' : ''}
+            {searchQuery && ` matching "${searchQuery}"`}
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map(source => (
+              <div key={source.id} className="relative">
+                <SourceCard
+                  source={source}
+                  onDelete={handleDelete}
+                  onUpdate={handleUpdate}
+                />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
