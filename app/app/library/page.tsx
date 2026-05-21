@@ -8,16 +8,52 @@ import { getSites, getEnrichmentStatus, type Source, type EnrichmentStatusItem }
 
 const ALL_CATEGORIES = [
   'All',
-  // Technical
-  'AI & ML', 'Development', 'Cybersecurity', 'Robotics', 'Embedded Systems',
-  'Design', 'Data Science', 'Cloud & DevOps', 'Hardware',
-  // Knowledge
-  'Research', 'Productivity', 'Education',
-  // Lifestyle / consumer
-  'Food & Cooking', 'Health & Wellness', 'Gaming', 'Home & Living',
-  'Shopping', 'Outdoor & Sports', 'Pets', 'Travel',
-  // Media / general
-  'News & Media', 'Science', 'Business & Finance', 'Entertainment', 'Other',
+  // Technology
+  'Programming', 'Web Development', 'Machine Learning', 'Deep Learning',
+  'Natural Language Processing', 'Computer Vision', 'Data Science',
+  'Cybersecurity', 'DevOps & Cloud', 'Cloud Computing', 'Networking',
+  'Linux & System Administration', 'Embedded Systems', 'IoT', 'Robotics',
+  'Hardware & Electronics', 'Game Development', 'Computer Graphics',
+  'Distributed Systems', 'Algorithms & Data Structures', 'Databases',
+  'Reverse Engineering', 'Homelabs & Self-Hosting', 'Mobile Development',
+  'API Development', 'Compilers & Languages', 'Computer Architecture',
+  'Operating Systems', 'System Design',
+  // Science
+  'Physics', 'Chemistry', 'Biology', 'Neuroscience', 'Astronomy & Space',
+  'Genetics & Genomics', 'Environmental Science', 'Scientific Research',
+  // Mathematics
+  'Pure Mathematics', 'Applied Mathematics', 'Statistics & Probability', 'Cryptography',
+  // Engineering
+  'Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering',
+  'Aerospace Engineering', 'Chemical Engineering', 'Biomedical Engineering',
+  // Medicine & Health
+  'Medicine & Clinical', 'Mental Health', 'Nutrition & Diet', 'Fitness & Exercise',
+  'Public Health', 'Pharmacology',
+  // Business & Finance
+  'Entrepreneurship', 'Investing & Markets', 'Personal Finance', 'Marketing',
+  'Management & Leadership', 'Product Management', 'Economics',
+  // Social Sciences
+  'Psychology', 'Sociology', 'Political Science', 'Anthropology', 'History',
+  'Philosophy', 'Linguistics',
+  // Humanities
+  'Literature & Writing', 'Art History', 'Music Theory', 'Film & Cinema', 'Religious Studies',
+  // Arts & Creative
+  'Visual Art & Design', 'Graphic Design', 'Music & Audio', 'Photography',
+  'Film & Video Production', 'Architecture & Interior Design', 'Fashion & Style', 'Crafts & Making',
+  // Education
+  'Learning & Study Skills', 'Academic Research', 'Online Courses',
+  'Languages & Linguistics', 'Career Development',
+  // Trades & Practical Skills
+  'Cooking & Recipes', 'Home Improvement', 'Gardening & Plants',
+  'Automotive & Vehicles', 'Electronics Repair',
+  // Entertainment & Media
+  'Gaming', 'Movies & TV', 'Sports & Athletics', 'Music & Podcasts', 'Comedy & Humor',
+  // Lifestyle
+  'Travel & Destinations', 'Fashion & Beauty', 'Pets & Animals',
+  'Outdoor & Adventure', 'Shopping & Products', 'Home & Family', 'Mindfulness & Wellness',
+  // General
+  'News & Media', 'Tools & Apps', 'Ideas & Inspiration',
+  'Shopping & Product Research', 'Projects & Planning', 'Read Later', 'Other',
 ]
 
 type SortKey = 'newest' | 'oldest' | 'az' | 'pinned'

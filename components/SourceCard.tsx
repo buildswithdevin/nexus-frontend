@@ -1,8 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import { ExternalLink, Edit2, Trash2, Pin, PinOff, X, Save, Loader2, Tag, Info } from 'lucide-react'
-import { updateSite, deleteSite, togglePin, reanalyzeSite, type Source } from '@/lib/api'
+import { useState, useEffect } from 'react'
+import { ExternalLink, Edit2, Trash2, Pin, PinOff, X, Save, Loader2, Tag, Info, FolderPlus, Sparkles } from 'lucide-react'
+import {
+  updateSite, deleteSite, togglePin, reanalyzeSite,
+  getEnrichedClusters, suggestCollections, addSourceToCluster, removeSourceFromCluster,
+  type Source, type EnrichedCluster, type ClusterSuggestion,
+} from '@/lib/api'
 import SourceDetailModal from './SourceDetailModal'
 
 interface SourceCardProps {
@@ -188,14 +192,186 @@ function EditModal({ source, onClose, onSave }: {
   )
 }
 
+// ── Add to Collection Modal ───────────────────────────────────────────────────
+
+function AddToCollectionModal({ source, onClose }: {
+  source: Source
+  onClose: () => void
+}) {
+  const [clusters,     setClusters]     = useState<EnrichedCluster[]>([])
+  const [suggestions,  setSuggestions]  = useState<ClusterSuggestion[] | null>(null)
+  const [assigned,     setAssigned]     = useState<Set<string>>(new Set())
+  const [saving,       setSaving]       = useState<string | null>(null)
+  const [loading,      setLoading]      = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      const [c, s] = await Promise.all([getEnrichedClusters(), suggestCollections(source.id)])
+      setClusters(c)
+      setSuggestions(s)
+      setAssigned(new Set(c.filter(cl => (cl.site_ids || []).includes(source.id)).map(cl => cl.id)))
+      setLoading(false)
+    }
+    load()
+  }, [source.id])
+
+  async function toggle(clusterId: string) {
+    setSaving(clusterId)
+    const isIn = assigned.has(clusterId)
+    if (isIn) {
+      await removeSourceFromCluster(clusterId, source.id)
+      setAssigned(prev => { const next = new Set(prev); next.delete(clusterId); return next })
+    } else {
+      await addSourceToCluster(clusterId, source.id)
+      setAssigned(prev => new Set([...prev, clusterId]))
+    }
+    setSaving(null)
+  }
+
+  const suggestedIds   = new Set((suggestions || []).map(s => s.cluster_id))
+  const otherClusters  = clusters.filter(c => !suggestedIds.has(c.id))
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'var(--modal-overlay)', backdropFilter: 'blur(4px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border flex flex-col"
+        style={{ background: 'var(--bg-card)', borderColor: 'var(--purple-border)', maxHeight: '75vh' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+          <div>
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Add to Collection</h2>
+            <p className="text-xs mt-0.5 truncate max-w-[280px]" style={{ color: 'var(--text-muted)' }}>{source.title}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10">
+            <X className="w-4 h-4" style={{ color: '#9ca3af' }} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {loading ? (
+            <div className="py-8 flex justify-center">
+              <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#8b5cf6' }} />
+            </div>
+          ) : clusters.length === 0 ? (
+            <div className="py-8 text-center">
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No collections yet.</p>
+              <a href="/app/collections" className="block text-xs mt-1" style={{ color: '#8b5cf6' }}>Create one →</a>
+            </div>
+          ) : (
+            <>
+              {/* Suggested */}
+              {suggestions && suggestions.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium px-1 mb-1.5 flex items-center gap-1.5" style={{ color: 'var(--text-dim)' }}>
+                    <Sparkles className="w-3 h-3" style={{ color: '#8b5cf6' }} />
+                    Suggested
+                  </p>
+                  <div className="space-y-1.5">
+                    {suggestions.map(sug => {
+                      const cluster = clusters.find(c => c.id === sug.cluster_id)
+                      if (!cluster) return null
+                      const isIn  = assigned.has(sug.cluster_id)
+                      const color = cluster.color || '#8b5cf6'
+                      return (
+                        <div
+                          key={sug.cluster_id}
+                          className="flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors"
+                          style={{ background: isIn ? `${color}12` : 'var(--bg-elevated)', borderColor: isIn ? `${color}30` : 'var(--border)' }}
+                        >
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{cluster.name}</p>
+                            <p className="text-xs truncate" style={{ color: 'var(--text-dim)' }}>
+                              {sug.current ? 'Already assigned' : sug.reason}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => toggle(sug.cluster_id)}
+                            disabled={saving === sug.cluster_id}
+                            className="flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
+                            style={isIn
+                              ? { background: 'rgba(239,68,68,0.12)', color: '#f87171' }
+                              : { background: `${color}20`, color }
+                            }
+                          >
+                            {saving === sug.cluster_id ? '…' : isIn ? 'Remove' : 'Add'}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* All other collections */}
+              {otherClusters.length > 0 && (
+                <div>
+                  {suggestions && suggestions.length > 0 && (
+                    <p className="text-xs font-medium px-1 mb-1.5 mt-3" style={{ color: 'var(--text-dim)' }}>All Collections</p>
+                  )}
+                  <div className="space-y-1.5">
+                    {otherClusters.map(cluster => {
+                      const isIn  = assigned.has(cluster.id)
+                      const color = cluster.color || '#8b5cf6'
+                      return (
+                        <div
+                          key={cluster.id}
+                          className="flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors"
+                          style={{ background: isIn ? `${color}12` : 'var(--bg-elevated)', borderColor: isIn ? `${color}30` : 'var(--border)' }}
+                        >
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{cluster.name}</p>
+                            <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
+                              {cluster.source_count} source{cluster.source_count !== 1 ? 's' : ''}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => toggle(cluster.id)}
+                            disabled={saving === cluster.id}
+                            className="flex-shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
+                            style={isIn
+                              ? { background: 'rgba(239,68,68,0.12)', color: '#f87171' }
+                              : { background: `${color}20`, color }
+                            }
+                          >
+                            {saving === cluster.id ? '…' : isIn ? 'Remove' : 'Add'}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t" style={{ borderColor: 'var(--border)' }}>
+          <a href="/app/collections" className="text-xs hover:opacity-80 transition-opacity" style={{ color: '#8b5cf6' }}>
+            Manage collections →
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Card ─────────────────────────────────────────────────────────────────
 
 export default function SourceCard({ source, onDelete, onUpdate }: SourceCardProps) {
-  const [editing,  setEditing]  = useState(false)
-  const [details,  setDetails]  = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [pinning,  setPinning]  = useState(false)
-  const [current,  setCurrent]  = useState<Source>(source)
+  const [editing,           setEditing]           = useState(false)
+  const [details,           setDetails]           = useState(false)
+  const [deleting,          setDeleting]          = useState(false)
+  const [pinning,           setPinning]           = useState(false)
+  const [addingToCollection, setAddingToCollection] = useState(false)
+  const [current,           setCurrent]           = useState<Source>(source)
 
   const colors  = categoryColors[current.category] || categoryColors['Other']
   const domain  = getDomain(current.url)
@@ -251,6 +427,9 @@ export default function SourceCard({ source, onDelete, onUpdate }: SourceCardPro
       )}
       {details && (
         <SourceDetailModal source={current} onClose={() => setDetails(false)} onUpdate={s => { setCurrent(s); onUpdate?.(s) }} />
+      )}
+      {addingToCollection && (
+        <AddToCollectionModal source={current} onClose={() => setAddingToCollection(false)} />
       )}
 
       <a
@@ -408,6 +587,13 @@ export default function SourceCard({ source, onDelete, onUpdate }: SourceCardPro
               title="View Details"
             >
               <Info className="w-3.5 h-3.5" style={{ color: '#9ca3af' }} />
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); e.preventDefault(); setAddingToCollection(true) }}
+              className="p-1.5 rounded-lg transition-colors hover:bg-white/10"
+              title="Add to Collection"
+            >
+              <FolderPlus className="w-3.5 h-3.5" style={{ color: '#9ca3af' }} />
             </button>
             <button
               onClick={handleEdit}

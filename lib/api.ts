@@ -52,6 +52,8 @@ export interface Source {
   summary: string | null
   favicon_url: string | null
   category: string
+  categories?: string[]
+  primary_category?: string
   tags: string[]
   technologies: string[]
   topics: string[]
@@ -121,7 +123,10 @@ export interface Cluster {
   site_ids: string[]
   learning_path: string[]
   insight: string | null
+  parent_id?: string | null
+  icon?: string | null
   created_at: string
+  children?: Cluster[]
 }
 
 export interface EnrichedCluster extends Cluster {
@@ -407,6 +412,36 @@ export async function deleteCluster(id: string): Promise<boolean> {
     return res.ok
   } catch {
     return false
+  }
+}
+
+export interface ClusterSuggestion {
+  cluster_id: string
+  cluster_name: string
+  cluster_color: string | null
+  confidence: number
+  reason: string
+  current: boolean
+}
+
+export async function getClusterTree(): Promise<{ total: number; tree: (Cluster & { children?: Cluster[] })[] } | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/clusters/tree`, { cache: 'no-store' })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
+export async function suggestCollections(siteId: string): Promise<ClusterSuggestion[] | null> {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/clusters/suggest?site_id=${encodeURIComponent(siteId)}`, { cache: 'no-store' })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.suggestions as ClusterSuggestion[]
+  } catch {
+    return null
   }
 }
 
