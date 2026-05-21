@@ -13,9 +13,11 @@ const ALL_CATEGORIES = [
   'Design', 'Data Science', 'Cloud & DevOps', 'Hardware',
   // Knowledge
   'Research', 'Productivity', 'Education',
-  // General
-  'News & Media', 'Food & Cooking', 'Health & Wellness',
-  'Science', 'Business & Finance', 'Entertainment', 'Other',
+  // Lifestyle / consumer
+  'Food & Cooking', 'Health & Wellness', 'Gaming', 'Home & Living',
+  'Shopping', 'Outdoor & Sports', 'Pets', 'Travel',
+  // Media / general
+  'News & Media', 'Science', 'Business & Finance', 'Entertainment', 'Other',
 ]
 
 type SortKey = 'newest' | 'oldest' | 'az' | 'pinned'
