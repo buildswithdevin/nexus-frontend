@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Eye, EyeOff, Loader2, Sparkles, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
-import { oauthRedirect, googleGisToken, setToken } from '@/lib/api'
+import { oauthRedirect, googleGisToken, setToken, pingBackend } from '@/lib/api'
 import { GOOGLE_CLIENT_ID } from '@/lib/google-gis'
 
 function MicrosoftIcon() {
@@ -64,6 +64,9 @@ export default function SignupPage() {
   const gisContainerRef = useRef<HTMLDivElement>(null)
   const routerRef       = useRef(router)
   routerRef.current = router
+
+  // Pre-warm the backend so it's awake by the time the user submits
+  useEffect(() => { pingBackend() }, [])
 
   const gisHandlerRef = useRef(async (_cred: string) => {})
   useEffect(() => {

@@ -675,13 +675,35 @@ export interface AuthResponse {
   user:       AuthUser
 }
 
+function isNetworkError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  return msg.includes('networkerror') || msg.includes('failed to fetch') || msg.includes('load failed')
+}
+
 function diagnoseNetworkError(err: unknown, endpoint: string): Error {
-  const msg = err instanceof Error ? err.message : String(err)
-  if (msg.toLowerCase().includes('networkerror') || msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('load failed')) {
-    console.error(`[NEXUS] Network/CORS error calling ${endpoint}. API_BASE="${API_BASE}"`)
-    return new Error('Cannot reach the NEXUS server. This is usually a CORS or connectivity issue — check the browser console for details.')
+  if (isNetworkError(err)) {
+    console.error(`[NEXUS] Network error on ${endpoint}. API_BASE="${API_BASE}"`)
+    return new Error(
+      'Could not reach the NEXUS server. The server may be starting up — please wait a moment and try again.',
+    )
   }
-  return err instanceof Error ? err : new Error(msg)
+  return err instanceof Error ? err : new Error(String(err))
+}
+
+// Fire-and-forget ping to wake a sleeping Render instance before the user hits submit.
+export function pingBackend(): void {
+  fetch(`${API_BASE}/health`).catch(() => {})
+}
+
+async function withNetworkRetry<T>(fn: () => Promise<T>, delayMs = 4000): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    if (!isNetworkError(err)) throw err
+    console.warn(`[NEXUS] Network error — retrying in ${delayMs}ms…`)
+    await new Promise(r => setTimeout(r, delayMs))
+    return fn()
+  }
 }
 
 export async function authSignup(payload: {
@@ -692,11 +714,13 @@ export async function authSignup(payload: {
 }): Promise<AuthResponse> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/api/auth/signup`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload),
-    })
+    res = await withNetworkRetry(() =>
+      fetch(`${API_BASE}/api/auth/signup`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      })
+    )
   } catch (err) {
     throw diagnoseNetworkError(err, '/api/auth/signup')
   }
@@ -710,11 +734,13 @@ export async function authSignup(payload: {
 export async function authLogin(email: string, password: string): Promise<AuthResponse> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/api/auth/login`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ email, password }),
-    })
+    res = await withNetworkRetry(() =>
+      fetch(`${API_BASE}/api/auth/login`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email, password }),
+      })
+    )
   } catch (err) {
     throw diagnoseNetworkError(err, '/api/auth/login')
   }
@@ -738,11 +764,13 @@ export async function authGetMe(): Promise<AuthUser | null> {
 export async function googleGisToken(credential: string): Promise<{ token: string }> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/api/auth/google/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credential }),
-    })
+    res = await withNetworkRetry(() =>
+      fetch(`${API_BASE}/api/auth/google/token`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ credential }),
+      })
+    )
   } catch (err) {
     throw diagnoseNetworkError(err, '/api/auth/google/token')
   }
