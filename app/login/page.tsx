@@ -40,19 +40,17 @@ function LoginForm() {
   const [loading,    setLoading]    = useState(false)
   const [gisLoading, setGisLoading] = useState(false)
   const [gisReady,   setGisReady]   = useState(false)
+  const [gisError,   setGisError]   = useState<string | null>(null)
   const [error,      setError]      = useState('')
 
   const from = searchParams.get('from') || '/app'
 
-  // gisContainerRef is always in the DOM (visibility:hidden until ready) so
-  // that offsetWidth is correct when renderButton() reads it.
   const gisContainerRef = useRef<HTMLDivElement>(null)
   const routerRef       = useRef(router)
   const fromRef         = useRef(from)
   routerRef.current = router
   fromRef.current   = from
 
-  // Stable callback ref — GIS registers this once; we update the closure each render
   const gisHandlerRef = useRef(async (_cred: string) => {})
   useEffect(() => {
     gisHandlerRef.current = async (credential: string) => {
@@ -72,80 +70,99 @@ function LoginForm() {
     }
   })
 
-  // Load GIS script and render the official button into gisContainerRef.
-  //
-  // We render the REAL Google button (not a transparent overlay clone) because
-  // the cross-origin GIS iframe must be the direct click target for the browser
-  // to treat the resulting popup as a genuine user gesture.  The overlay
-  // approach fails because our wrapper's overflow:hidden clips the iframe in a
-  // way that makes it unclickable even though gisReady was set by the fallback
-  // timer.
   useEffect(() => {
+    // ── Key architectural fix ─────────────────────────────────────────────────
+    // Previous versions used visibility:hidden + height:0 while loading, which
+    // causes GIS to silently skip renderButton() because its internal check
+    // sees a zero-size container.  Now the GIS container is always full-size
+    // and visible; a positioned overlay covers it during loading/processing.
+    // ──────────────────────────────────────────────────────────────────────────
     function initGis() {
       const container = gisContainerRef.current
       if (!container || !window.google?.accounts?.id) {
-        console.warn('[GIS] initGis called but container or google.accounts.id missing')
+        console.warn('[GIS] initGis: container or google.accounts.id not available')
         return
       }
 
-      console.log('[GIS] calling google.accounts.id.initialize')
-      window.google.accounts.id.initialize({
-        client_id:             GOOGLE_CLIENT_ID,
-        callback:              (res) => gisHandlerRef.current(res.credential),
-        auto_select:           false,
-        cancel_on_tap_outside: true,
-      })
+      try {
+        console.log('[GIS] google.accounts.id.initialize')
+        window.google.accounts.id.initialize({
+          client_id:             GOOGLE_CLIENT_ID,
+          callback:              (res) => gisHandlerRef.current(res.credential),
+          auto_select:           false,
+          cancel_on_tap_outside: true,
+        })
 
-      // Read the container's pixel width while it is in the DOM
-      // (visibility:hidden still gives correct offsetWidth unlike display:none)
-      const btnWidth = Math.min(container.offsetWidth || 320, 400)
-      console.log('[GIS] calling renderButton, width =', btnWidth)
-      window.google.accounts.id.renderButton(container, {
-        type:  'standard',
-        size:  'large',
-        text:  'continue_with',
-        width: btnWidth,
-      })
+        const width = Math.min(container.offsetWidth || 320, 400)
+        console.log('[GIS] renderButton width =', width, 'container.offsetWidth =', container.offsetWidth)
+        window.google.accounts.id.renderButton(container, {
+          type:  'standard',
+          size:  'large',
+          text:  'continue_with',
+          width,
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[GIS] initialize/renderButton threw:', msg)
+        setGisError(msg)
+        return
+      }
 
-      // Watch for GIS to inject its button element into the container
+      // Watch for GIS to inject its button element
       const observer = new MutationObserver(() => {
         if (container.firstChild) {
           observer.disconnect()
-          console.log('[GIS] button rendered in DOM — marking ready')
+          console.log('[GIS] button rendered — ready ✓')
           setGisReady(true)
         }
       })
       observer.observe(container, { childList: true, subtree: true })
 
-      // 3-second safety net — only fires if MutationObserver never triggered
-      setTimeout(() => {
-        setGisReady(prev => {
-          if (!prev) console.warn('[GIS] fallback timer fired — button may not be ready')
-          return prev  // do NOT force-true; only MutationObserver should set ready
-        })
-      }, 3000)
+      // 8-second diagnostic timeout: if the button still hasn't appeared,
+      // GIS likely rejected the page origin.  Show actionable error.
+      const errorTimer = setTimeout(() => {
+        if (!container.firstChild) {
+          const msg =
+            'Google button did not render after 8 s. ' +
+            'Most likely cause: add https://nexus-frontend-five-swart.vercel.app ' +
+            'to Authorized JavaScript Origins in Google Cloud Console → ' +
+            'APIs & Services → Credentials → click the OAuth client → ' +
+            'Authorized JavaScript origins.'
+          console.error('[GIS]', msg)
+          setGisError(msg)
+        }
+      }, 8000)
+
+      return () => {
+        observer.disconnect()
+        clearTimeout(errorTimer)
+      }
     }
 
     if (window.google?.accounts?.id) {
-      console.log('[GIS] google already on window — skipping script load')
+      console.log('[GIS] google already on window')
       initGis()
       return
     }
 
     const existing = document.querySelector<HTMLScriptElement>('script[src*="accounts.google.com/gsi"]')
     if (existing) {
-      console.log('[GIS] script tag already in DOM — attaching load listener')
+      console.log('[GIS] script tag found — waiting for load event')
       existing.addEventListener('load', initGis, { once: true })
       return () => existing.removeEventListener('load', initGis)
     }
 
-    console.log('[GIS] injecting accounts.google.com/gsi/client script')
+    console.log('[GIS] injecting gsi/client script')
     const script = document.createElement('script')
     script.src   = 'https://accounts.google.com/gsi/client'
     script.async = true
     script.defer = true
-    script.onload = () => { console.log('[GIS] script loaded ✓'); initGis() }
-    script.onerror = () => console.error('[GIS] script failed to load')
+    script.onload  = () => { console.log('[GIS] script loaded ✓'); initGis() }
+    script.onerror = () => {
+      const msg = 'Failed to load accounts.google.com/gsi/client'
+      console.error('[GIS]', msg)
+      setGisError(msg)
+    }
     document.head.appendChild(script)
     return () => { script.onload = null; script.onerror = null }
   }, [])
@@ -176,10 +193,6 @@ function LoginForm() {
 
   const busy = loading || gisLoading
 
-  // Determine which state the Google button area is in
-  const googleState: 'loading' | 'ready' | 'processing' =
-    gisLoading ? 'processing' : gisReady ? 'ready' : 'loading'
-
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--bg-primary)' }}>
       <div className="w-full max-w-sm">
@@ -205,71 +218,72 @@ function LoginForm() {
             </div>
           )}
 
-          {/* OAuth buttons */}
           <div className="space-y-2 mb-4">
 
-            {/* ── Google sign-in ────────────────────────────────────────────────
-                Three visual states share the same DOM slot:
-                  loading    → disabled placeholder with spinner
-                  ready      → official Google button (rendered by GIS)
-                  processing → spinner while backend exchanges credential
+            {/* ── Google sign-in ──────────────────────────────────────────────
+                GIS container is ALWAYS rendered at full size (never height:0
+                or visibility:hidden) so GIS's internal size-check passes.
+                A positioned overlay covers it during loading/processing.
+                When gisReady fires the overlay is removed and the button
+                appears.  If gisError is set, a fallback redirect is shown.
+            ─────────────────────────────────────────────────────────────── */}
+            <div style={{ position: 'relative', minHeight: '40px' }}>
 
-                The GIS container is kept in the DOM at all times with
-                visibility:hidden so offsetWidth is readable when
-                renderButton() is called.  It switches to visibility:visible
-                when gisReady becomes true.
-            ───────────────────────────────────────────────────────────────── */}
-            <div style={{ minHeight: '40px' }}>
-
-              {/* Loading placeholder */}
-              {googleState === 'loading' && (
-                <div
-                  className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium"
-                  style={{
-                    background:  'var(--input-bg)',
-                    borderColor: 'var(--border)',
-                    color:       'var(--text-muted)',
-                    cursor:      'wait',
-                    minHeight:   '40px',
-                  }}
-                >
-                  <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-                  Loading Google sign-in…
-                </div>
-              )}
-
-              {/* Processing placeholder */}
-              {googleState === 'processing' && (
-                <div
-                  className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium"
-                  style={{
-                    background:  'var(--input-bg)',
-                    borderColor: 'var(--border)',
-                    color:       'var(--text-muted)',
-                    minHeight:   '40px',
-                  }}
-                >
-                  <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-                  Signing in with Google…
-                </div>
-              )}
-
-              {/* Official Google button — rendered by GIS into this div.
-                  visibility:hidden keeps it in layout flow (preserving offsetWidth)
-                  until GIS has finished rendering. */}
+              {/* GIS button target — always present and full-width */}
               <div
                 ref={gisContainerRef}
-                onClick={() => console.log('[GIS] Google button area clicked by user')}
-                style={{
-                  width:      '100%',
-                  overflow:   'hidden',
-                  visibility: googleState === 'ready' ? 'visible' : 'hidden',
-                  height:     googleState === 'ready' ? 'auto' : '0',
-                }}
+                style={{ width: '100%' }}
               />
+
+              {/* Loading overlay — sits above GIS container, removed when ready */}
+              {!gisReady && !gisError && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'var(--bg-card)' }}>
+                  <div
+                    className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium"
+                    style={{
+                      background:  'var(--input-bg)',
+                      borderColor: 'var(--border)',
+                      color:       'var(--text-muted)',
+                      cursor:      gisLoading ? 'default' : 'wait',
+                      minHeight:   '40px',
+                    }}
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                    {gisLoading ? 'Signing in with Google…' : 'Loading Google sign-in…'}
+                  </div>
+                </div>
+              )}
+
+              {/* Processing overlay — shown while backend is verifying credential */}
+              {gisReady && gisLoading && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'var(--bg-card)' }}>
+                  <div
+                    className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium"
+                    style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-muted)', minHeight: '40px' }}
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                    Signing in with Google…
+                  </div>
+                </div>
+              )}
+
+              {/* Error state — shown after 8 s timeout or on GIS exception */}
+              {gisError && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'var(--bg-card)' }}>
+                  <button
+                    onClick={() => { console.log('[GIS] falling back to redirect flow'); oauthRedirect('google') }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all duration-150"
+                    style={{ background: 'var(--input-bg)', borderColor: 'rgba(239,68,68,0.3)', color: '#f87171', minHeight: '40px' }}
+                    title={gisError}
+                  >
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    Google unavailable — try redirect →
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Microsoft and GitHub — unchanged redirect flow */}
+            {/* Microsoft and GitHub — server-side redirect flow */}
             {([
               { provider: 'microsoft' as const, label: 'Continue with Microsoft', Icon: MicrosoftIcon },
               { provider: 'github'    as const, label: 'Continue with GitHub',    Icon: GitHubIcon    },
@@ -289,7 +303,6 @@ function LoginForm() {
             ))}
           </div>
 
-          {/* Divider */}
           <div className="flex items-center gap-3 my-4">
             <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
             <span className="text-xs" style={{ color: 'var(--text-dim)' }}>or email</span>
@@ -308,7 +321,6 @@ function LoginForm() {
                 onBlur={e  => (e.target.style.borderColor = 'var(--border)')}
               />
             </div>
-
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Password</label>
               <div className="relative">
@@ -328,7 +340,6 @@ function LoginForm() {
                 </button>
               </div>
             </div>
-
             <button type="submit" disabled={busy || !email || !password}
               className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2"
               style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}>

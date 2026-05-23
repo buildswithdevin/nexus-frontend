@@ -58,6 +58,7 @@ export default function SignupPage() {
   const [loading,     setLoading]     = useState(false)
   const [gisLoading,  setGisLoading]  = useState(false)
   const [gisReady,    setGisReady]    = useState(false)
+  const [gisError,    setGisError]    = useState<string | null>(null)
   const [error,       setError]       = useState('')
 
   const gisContainerRef = useRef<HTMLDivElement>(null)
@@ -87,64 +88,86 @@ export default function SignupPage() {
     function initGis() {
       const container = gisContainerRef.current
       if (!container || !window.google?.accounts?.id) {
-        console.warn('[GIS] initGis called but container or google.accounts.id missing')
+        console.warn('[GIS] initGis: container or google.accounts.id not available')
         return
       }
 
-      console.log('[GIS] calling google.accounts.id.initialize')
-      window.google.accounts.id.initialize({
-        client_id:             GOOGLE_CLIENT_ID,
-        callback:              (res) => gisHandlerRef.current(res.credential),
-        auto_select:           false,
-        cancel_on_tap_outside: true,
-      })
+      try {
+        console.log('[GIS] google.accounts.id.initialize')
+        window.google.accounts.id.initialize({
+          client_id:             GOOGLE_CLIENT_ID,
+          callback:              (res) => gisHandlerRef.current(res.credential),
+          auto_select:           false,
+          cancel_on_tap_outside: true,
+        })
 
-      const btnWidth = Math.min(container.offsetWidth || 320, 400)
-      console.log('[GIS] calling renderButton, width =', btnWidth)
-      window.google.accounts.id.renderButton(container, {
-        type:  'standard',
-        size:  'large',
-        text:  'signup_with',
-        width: btnWidth,
-      })
+        const width = Math.min(container.offsetWidth || 320, 400)
+        console.log('[GIS] renderButton width =', width, 'container.offsetWidth =', container.offsetWidth)
+        window.google.accounts.id.renderButton(container, {
+          type:  'standard',
+          size:  'large',
+          text:  'signup_with',
+          width,
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[GIS] initialize/renderButton threw:', msg)
+        setGisError(msg)
+        return
+      }
 
       const observer = new MutationObserver(() => {
         if (container.firstChild) {
           observer.disconnect()
-          console.log('[GIS] button rendered in DOM — marking ready')
+          console.log('[GIS] button rendered — ready ✓')
           setGisReady(true)
         }
       })
       observer.observe(container, { childList: true, subtree: true })
 
-      setTimeout(() => {
-        setGisReady(prev => {
-          if (!prev) console.warn('[GIS] fallback timer fired — button may not be ready')
-          return prev
-        })
-      }, 3000)
+      const errorTimer = setTimeout(() => {
+        if (!container.firstChild) {
+          const msg =
+            'Google button did not render after 8 s. ' +
+            'Most likely cause: add https://nexus-frontend-five-swart.vercel.app ' +
+            'to Authorized JavaScript Origins in Google Cloud Console → ' +
+            'APIs & Services → Credentials → click the OAuth client → ' +
+            'Authorized JavaScript origins.'
+          console.error('[GIS]', msg)
+          setGisError(msg)
+        }
+      }, 8000)
+
+      return () => {
+        observer.disconnect()
+        clearTimeout(errorTimer)
+      }
     }
 
     if (window.google?.accounts?.id) {
-      console.log('[GIS] google already on window — skipping script load')
+      console.log('[GIS] google already on window')
       initGis()
       return
     }
 
     const existing = document.querySelector<HTMLScriptElement>('script[src*="accounts.google.com/gsi"]')
     if (existing) {
-      console.log('[GIS] script tag already in DOM — attaching load listener')
+      console.log('[GIS] script tag found — waiting for load event')
       existing.addEventListener('load', initGis, { once: true })
       return () => existing.removeEventListener('load', initGis)
     }
 
-    console.log('[GIS] injecting accounts.google.com/gsi/client script')
+    console.log('[GIS] injecting gsi/client script')
     const script = document.createElement('script')
     script.src   = 'https://accounts.google.com/gsi/client'
     script.async = true
     script.defer = true
-    script.onload = () => { console.log('[GIS] script loaded ✓'); initGis() }
-    script.onerror = () => console.error('[GIS] script failed to load')
+    script.onload  = () => { console.log('[GIS] script loaded ✓'); initGis() }
+    script.onerror = () => {
+      const msg = 'Failed to load accounts.google.com/gsi/client'
+      console.error('[GIS]', msg)
+      setGisError(msg)
+    }
     document.head.appendChild(script)
     return () => { script.onload = null; script.onerror = null }
   }, [])
@@ -176,8 +199,6 @@ export default function SignupPage() {
   }
 
   const busy = loading || gisLoading
-  const googleState: 'loading' | 'ready' | 'processing' =
-    gisLoading ? 'processing' : gisReady ? 'ready' : 'loading'
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--bg-primary)' }}>
@@ -206,47 +227,54 @@ export default function SignupPage() {
           <div className="space-y-2 mb-4">
 
             {/* ── Google sign-in ─────────────────────────────────────────────── */}
-            <div style={{ minHeight: '40px' }}>
-              {googleState === 'loading' && (
-                <div
-                  className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium"
-                  style={{
-                    background:  'var(--input-bg)',
-                    borderColor: 'var(--border)',
-                    color:       'var(--text-muted)',
-                    cursor:      'wait',
-                    minHeight:   '40px',
-                  }}
-                >
-                  <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-                  Loading Google sign-in…
+            <div style={{ position: 'relative', minHeight: '40px' }}>
+
+              {/* GIS button target — always present and full-width */}
+              <div ref={gisContainerRef} style={{ width: '100%' }} />
+
+              {/* Loading overlay */}
+              {!gisReady && !gisError && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'var(--bg-card)' }}>
+                  <div
+                    className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium"
+                    style={{
+                      background: 'var(--input-bg)', borderColor: 'var(--border)',
+                      color: 'var(--text-muted)', cursor: gisLoading ? 'default' : 'wait', minHeight: '40px',
+                    }}
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                    {gisLoading ? 'Signing in with Google…' : 'Loading Google sign-in…'}
+                  </div>
                 </div>
               )}
-              {googleState === 'processing' && (
-                <div
-                  className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium"
-                  style={{
-                    background:  'var(--input-bg)',
-                    borderColor: 'var(--border)',
-                    color:       'var(--text-muted)',
-                    minHeight:   '40px',
-                  }}
-                >
-                  <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-                  Signing in with Google…
+
+              {/* Processing overlay */}
+              {gisReady && gisLoading && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'var(--bg-card)' }}>
+                  <div
+                    className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium"
+                    style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-muted)', minHeight: '40px' }}
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                    Signing in with Google…
+                  </div>
                 </div>
               )}
-              {/* Official GIS button — always in DOM so offsetWidth is readable */}
-              <div
-                ref={gisContainerRef}
-                onClick={() => console.log('[GIS] Google button area clicked by user')}
-                style={{
-                  width:      '100%',
-                  overflow:   'hidden',
-                  visibility: googleState === 'ready' ? 'visible' : 'hidden',
-                  height:     googleState === 'ready' ? 'auto' : '0',
-                }}
-              />
+
+              {/* Error state with redirect fallback */}
+              {gisError && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'var(--bg-card)' }}>
+                  <button
+                    onClick={() => { console.log('[GIS] falling back to redirect flow'); oauthRedirect('google') }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all duration-150"
+                    style={{ background: 'var(--input-bg)', borderColor: 'rgba(239,68,68,0.3)', color: '#f87171', minHeight: '40px' }}
+                    title={gisError}
+                  >
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    Google unavailable — try redirect →
+                  </button>
+                </div>
+              )}
             </div>
 
             {([
@@ -284,7 +312,6 @@ export default function SignupPage() {
                 onFocus={e => (e.target.style.borderColor = 'rgba(139,92,246,0.5)')}
                 onBlur={e => (e.target.style.borderColor = 'var(--border)')} />
             </div>
-
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Username</label>
               <div className="relative">
@@ -298,7 +325,6 @@ export default function SignupPage() {
                   onBlur={e => (e.target.style.borderColor = 'var(--border)')} />
               </div>
             </div>
-
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Email</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)}
@@ -308,7 +334,6 @@ export default function SignupPage() {
                 onFocus={e => (e.target.style.borderColor = 'rgba(139,92,246,0.5)')}
                 onBlur={e => (e.target.style.borderColor = 'var(--border)')} />
             </div>
-
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Password</label>
               <div className="relative">
@@ -327,7 +352,6 @@ export default function SignupPage() {
               </div>
               <PasswordStrength password={password} />
             </div>
-
             <button type="submit" disabled={busy || !displayName || !email || !password || !username}
               className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
               style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}>
