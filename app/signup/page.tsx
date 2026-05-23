@@ -8,16 +8,6 @@ import { useAuth } from '@/lib/auth-context'
 import { oauthRedirect, googleGisToken, setToken } from '@/lib/api'
 import { GOOGLE_CLIENT_ID } from '@/lib/google-gis'
 
-function GoogleIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24">
-      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-    </svg>
-  )
-}
 function MicrosoftIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24">
@@ -69,42 +59,39 @@ export default function SignupPage() {
   const [gisLoading,  setGisLoading]  = useState(false)
   const [gisReady,    setGisReady]    = useState(false)
   const [error,       setError]       = useState('')
-  const [googleHovered, setGoogleHovered] = useState(false)
 
-  // Stable refs so GIS callback (registered once) always sees current values
-  const gisOverlayRef = useRef<HTMLDivElement>(null)
-  const routerRef     = useRef(router)
+  const gisContainerRef = useRef<HTMLDivElement>(null)
+  const routerRef       = useRef(router)
   routerRef.current = router
 
-  // Keep the credential handler current without re-initialising GIS
-  const gisHandlerRef = useRef(async (_credential: string) => {})
+  const gisHandlerRef = useRef(async (_cred: string) => {})
   useEffect(() => {
     gisHandlerRef.current = async (credential: string) => {
-      console.log('[GIS] Credential received, exchanging with backend…')
+      console.log('[GIS] credential callback fired — exchanging with backend')
       setGisLoading(true)
       setError('')
       try {
         const data = await googleGisToken(credential)
         setToken(data.token)
-        console.log('[GIS] Token stored, redirecting to /app')
+        console.log('[GIS] token stored, redirecting to /app')
         routerRef.current.replace('/app')
       } catch (err) {
+        console.error('[GIS] backend exchange failed:', err)
         setError(err instanceof Error ? err.message : 'Google sign-up failed')
         setGisLoading(false)
       }
     }
   })
 
-  // Load GIS script and render button into the overlay container.
-  //
-  // Architecture: the GIS button sits as a transparent overlay ON TOP of our
-  // visible styled button. User's click lands directly on the GIS button
-  // (genuine user gesture), so the browser allows the popup to open.
   useEffect(() => {
     function initGis() {
-      if (!gisOverlayRef.current || !window.google?.accounts?.id) return
+      const container = gisContainerRef.current
+      if (!container || !window.google?.accounts?.id) {
+        console.warn('[GIS] initGis called but container or google.accounts.id missing')
+        return
+      }
 
-      console.log('[GIS] Initializing google.accounts.id…')
+      console.log('[GIS] calling google.accounts.id.initialize')
       window.google.accounts.id.initialize({
         client_id:             GOOGLE_CLIENT_ID,
         callback:              (res) => gisHandlerRef.current(res.credential),
@@ -112,52 +99,56 @@ export default function SignupPage() {
         cancel_on_tap_outside: true,
       })
 
-      console.log('[GIS] Calling renderButton…')
-      window.google.accounts.id.renderButton(gisOverlayRef.current, {
+      const btnWidth = Math.min(container.offsetWidth || 320, 400)
+      console.log('[GIS] calling renderButton, width =', btnWidth)
+      window.google.accounts.id.renderButton(container, {
         type:  'standard',
         size:  'large',
-        width: 400,
+        text:  'signup_with',
+        width: btnWidth,
       })
 
       const observer = new MutationObserver(() => {
-        if (gisOverlayRef.current?.firstChild) {
+        if (container.firstChild) {
           observer.disconnect()
-          console.log('[GIS] Overlay button rendered — Google button ready')
+          console.log('[GIS] button rendered in DOM — marking ready')
           setGisReady(true)
         }
       })
-      observer.observe(gisOverlayRef.current, { childList: true, subtree: true })
+      observer.observe(container, { childList: true, subtree: true })
 
-      setTimeout(() => setGisReady(r => { if (!r) console.log('[GIS] Fallback ready timer fired'); return true }), 3000)
+      setTimeout(() => {
+        setGisReady(prev => {
+          if (!prev) console.warn('[GIS] fallback timer fired — button may not be ready')
+          return prev
+        })
+      }, 3000)
     }
 
     if (window.google?.accounts?.id) {
-      console.log('[GIS] Script already loaded')
+      console.log('[GIS] google already on window — skipping script load')
       initGis()
       return
     }
 
     const existing = document.querySelector<HTMLScriptElement>('script[src*="accounts.google.com/gsi"]')
     if (existing) {
-      console.log('[GIS] Script tag exists, waiting for load…')
+      console.log('[GIS] script tag already in DOM — attaching load listener')
       existing.addEventListener('load', initGis, { once: true })
       return () => existing.removeEventListener('load', initGis)
     }
 
-    console.log('[GIS] Injecting script tag…')
+    console.log('[GIS] injecting accounts.google.com/gsi/client script')
     const script = document.createElement('script')
     script.src   = 'https://accounts.google.com/gsi/client'
     script.async = true
     script.defer = true
-    script.onload = () => {
-      console.log('[GIS] Script loaded ✓')
-      initGis()
-    }
+    script.onload = () => { console.log('[GIS] script loaded ✓'); initGis() }
+    script.onerror = () => console.error('[GIS] script failed to load')
     document.head.appendChild(script)
-    return () => { script.onload = null }
+    return () => { script.onload = null; script.onerror = null }
   }, [])
 
-  // Auto-fill username from display name
   useEffect(() => {
     if (displayName && !username) {
       setUsername(displayName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20))
@@ -185,12 +176,13 @@ export default function SignupPage() {
   }
 
   const busy = loading || gisLoading
+  const googleState: 'loading' | 'ready' | 'processing' =
+    gisLoading ? 'processing' : gisReady ? 'ready' : 'loading'
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--bg-primary)' }}>
       <div className="w-full max-w-sm">
 
-        {/* Logo */}
         <div className="text-center mb-8">
           <div
             className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-4"
@@ -202,77 +194,61 @@ export default function SignupPage() {
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Your personal AI knowledge hub</p>
         </div>
 
-        <div
-          className="p-6 rounded-2xl border"
-          style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
-        >
+        <div className="p-6 rounded-2xl border" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
           {error && (
-            <div
-              className="flex items-center gap-2 p-3 rounded-xl mb-4 text-sm"
-              style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}
-            >
+            <div className="flex items-center gap-2 p-3 rounded-xl mb-4 text-sm"
+              style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               {error}
             </div>
           )}
 
-          {/* OAuth buttons */}
           <div className="space-y-2 mb-4">
 
-            {/* ── Google button ─────────────────────────────────────────────── */}
-            <div
-              className="relative w-full"
-              style={{ cursor: gisReady && !busy ? 'pointer' : 'default' }}
-              onMouseEnter={() => setGoogleHovered(true)}
-              onMouseLeave={() => setGoogleHovered(false)}
-            >
-              {/* Visual layer (our styling, non-interactive) */}
+            {/* ── Google sign-in ─────────────────────────────────────────────── */}
+            <div style={{ minHeight: '40px' }}>
+              {googleState === 'loading' && (
+                <div
+                  className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium"
+                  style={{
+                    background:  'var(--input-bg)',
+                    borderColor: 'var(--border)',
+                    color:       'var(--text-muted)',
+                    cursor:      'wait',
+                    minHeight:   '40px',
+                  }}
+                >
+                  <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                  Loading Google sign-in…
+                </div>
+              )}
+              {googleState === 'processing' && (
+                <div
+                  className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium"
+                  style={{
+                    background:  'var(--input-bg)',
+                    borderColor: 'var(--border)',
+                    color:       'var(--text-muted)',
+                    minHeight:   '40px',
+                  }}
+                >
+                  <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                  Signing in with Google…
+                </div>
+              )}
+              {/* Official GIS button — always in DOM so offsetWidth is readable */}
               <div
-                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium select-none transition-all duration-150"
+                ref={gisContainerRef}
+                onClick={() => console.log('[GIS] Google button area clicked by user')}
                 style={{
-                  background:    'var(--input-bg)',
-                  borderColor:   googleHovered && gisReady && !busy ? 'rgba(139,92,246,0.4)' : 'var(--border)',
-                  color:         'var(--text-primary)',
-                  opacity:       busy ? 0.6 : 1,
-                  pointerEvents: 'none',
-                }}
-              >
-                {gisLoading
-                  ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : <GoogleIcon />
-                }
-                Sign up with Google
-                {!gisReady && !gisLoading && (
-                  <span className="ml-auto text-xs" style={{ color: 'var(--text-dim)', opacity: 0.7 }}>loading…</span>
-                )}
-              </div>
-
-              {/* GIS overlay — transparent, receives the user's click directly */}
-              <div
-                ref={gisOverlayRef}
-                style={{
-                  position:      'absolute',
-                  inset:         0,
-                  overflow:      'hidden',
-                  opacity:       0,
-                  pointerEvents: gisReady && !busy ? 'auto' : 'none',
-                  borderRadius:  '0.75rem',
+                  width:      '100%',
+                  overflow:   'hidden',
+                  visibility: googleState === 'ready' ? 'visible' : 'hidden',
+                  height:     googleState === 'ready' ? 'auto' : '0',
                 }}
               />
-
-              {/* Blocker while GIS is not ready */}
-              {(!gisReady || busy) && (
-                <div
-                  style={{ position: 'absolute', inset: 0, cursor: gisReady ? 'default' : 'wait' }}
-                  onClick={() => {
-                    if (!gisReady && !gisLoading)
-                      setError('Google login is loading. Try again in a few seconds.')
-                  }}
-                />
-              )}
             </div>
 
-            {/* Microsoft and GitHub — server-side redirect flow */}
             {([
               { provider: 'microsoft' as const, label: 'Sign up with Microsoft', Icon: MicrosoftIcon },
               { provider: 'github'    as const, label: 'Sign up with GitHub',    Icon: GitHubIcon    },
@@ -301,92 +277,60 @@ export default function SignupPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Display Name</label>
-              <input
-                type="text"
-                value={displayName}
-                onChange={e => setDisplayName(e.target.value)}
-                placeholder="Your name"
-                required
-                autoComplete="name"
+              <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
+                placeholder="Your name" required autoComplete="name"
                 className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all duration-200"
                 style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 onFocus={e => (e.target.style.borderColor = 'rgba(139,92,246,0.5)')}
-                onBlur={e => (e.target.style.borderColor = 'var(--border)')}
-              />
+                onBlur={e => (e.target.style.borderColor = 'var(--border)')} />
             </div>
 
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Username</label>
               <div className="relative">
-                <span
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-sm select-none"
-                  style={{ color: 'var(--text-dim)' }}
-                >@</span>
-                <input
-                  type="text"
-                  value={username}
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm select-none" style={{ color: 'var(--text-dim)' }}>@</span>
+                <input type="text" value={username}
                   onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-                  placeholder="username"
-                  required
-                  autoComplete="username"
+                  placeholder="username" required autoComplete="username"
                   className="w-full pl-7 pr-4 py-3 rounded-xl border text-sm outline-none transition-all duration-200"
                   style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                   onFocus={e => (e.target.style.borderColor = 'rgba(139,92,246,0.5)')}
-                  onBlur={e => (e.target.style.borderColor = 'var(--border)')}
-                />
+                  onBlur={e => (e.target.style.borderColor = 'var(--border)')} />
               </div>
             </div>
 
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                autoComplete="email"
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com" required autoComplete="email"
                 className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-all duration-200"
                 style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 onFocus={e => (e.target.style.borderColor = 'rgba(139,92,246,0.5)')}
-                onBlur={e => (e.target.style.borderColor = 'var(--border)')}
-              />
+                onBlur={e => (e.target.style.borderColor = 'var(--border)')} />
             </div>
 
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Password</label>
               <div className="relative">
-                <input
-                  type={showPw ? 'text' : 'password'}
-                  value={password}
+                <input type={showPw ? 'text' : 'password'} value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="Min. 8 characters"
-                  required
-                  autoComplete="new-password"
+                  placeholder="Min. 8 characters" required autoComplete="new-password"
                   className="w-full px-4 py-3 pr-11 rounded-xl border text-sm outline-none transition-all duration-200"
                   style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                   onFocus={e => (e.target.style.borderColor = 'rgba(139,92,246,0.5)')}
-                  onBlur={e => (e.target.style.borderColor = 'var(--border)')}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw(p => !p)}
+                  onBlur={e => (e.target.style.borderColor = 'var(--border)')} />
+                <button type="button" onClick={() => setShowPw(p => !p)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
-                  style={{ color: 'var(--text-dim)' }}
-                  tabIndex={-1}
-                >
+                  style={{ color: 'var(--text-dim)' }} tabIndex={-1}>
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
               <PasswordStrength password={password} />
             </div>
 
-            <button
-              type="submit"
-              disabled={busy || !displayName || !email || !password || !username}
+            <button type="submit" disabled={busy || !displayName || !email || !password || !username}
               className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
-              style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}
-            >
+              style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create Account'}
             </button>
           </form>
@@ -394,9 +338,7 @@ export default function SignupPage() {
 
         <p className="text-center text-sm mt-5" style={{ color: 'var(--text-muted)' }}>
           Already have an account?{' '}
-          <Link href="/login" className="font-medium transition-colors" style={{ color: '#a78bfa' }}>
-            Sign in
-          </Link>
+          <Link href="/login" className="font-medium transition-colors" style={{ color: '#a78bfa' }}>Sign in</Link>
         </p>
       </div>
     </div>
