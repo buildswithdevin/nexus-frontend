@@ -52,26 +52,30 @@ function LoginForm() {
   const [showPw,     setShowPw]     = useState(false)
   const [loading,    setLoading]    = useState(false)
   const [gisLoading, setGisLoading] = useState(false)
+  const [gisReady,   setGisReady]   = useState(false)
   const [error,      setError]      = useState('')
+  const [googleHovered, setGoogleHovered] = useState(false)
 
   const from = searchParams.get('from') || '/app'
 
-  // Refs so the once-registered GIS callback always has the latest values
-  const gisRef    = useRef<HTMLDivElement>(null)
-  const routerRef = useRef(router)
-  const fromRef   = useRef(from)
+  // Stable refs so GIS callback (registered once) always sees current values
+  const gisOverlayRef = useRef<HTMLDivElement>(null)
+  const routerRef     = useRef(router)
+  const fromRef       = useRef(from)
   routerRef.current = router
   fromRef.current   = from
 
-  // Keep the GIS credential handler up to date without re-initialising GIS
+  // Keep the credential handler current without re-initialising GIS
   const gisHandlerRef = useRef(async (_credential: string) => {})
   useEffect(() => {
     gisHandlerRef.current = async (credential: string) => {
+      console.log('[GIS] Credential received, exchanging with backend…')
       setGisLoading(true)
       setError('')
       try {
         const data = await googleGisToken(credential)
         setToken(data.token)
+        console.log('[GIS] Token stored, redirecting to', fromRef.current)
         routerRef.current.replace(fromRef.current)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Google sign-in failed')
@@ -80,38 +84,70 @@ function LoginForm() {
     }
   })
 
-  // Load GIS script once and render a button into the hidden container
+  // Load GIS script and render button into the overlay container.
+  //
+  // Architecture: instead of rendering off-screen and calling btn.click()
+  // (which browsers block as a non-user-gesture), the GIS button sits as a
+  // transparent overlay ON TOP of our visible styled button. The user's
+  // actual click lands on the GIS button directly — a genuine user gesture —
+  // so the browser allows the resulting popup window.
   useEffect(() => {
     function initGis() {
-      if (!gisRef.current || !window.google?.accounts?.id) return
+      if (!gisOverlayRef.current || !window.google?.accounts?.id) return
+
+      console.log('[GIS] Initializing google.accounts.id…')
       window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: (res) => gisHandlerRef.current(res.credential),
-        auto_select: false,
+        client_id:             GOOGLE_CLIENT_ID,
+        callback:              (res) => gisHandlerRef.current(res.credential),
+        auto_select:           false,
         cancel_on_tap_outside: true,
       })
-      window.google.accounts.id.renderButton(gisRef.current, {
-        type: 'standard',
-        size: 'large',
+
+      console.log('[GIS] Calling renderButton…')
+      // width:400 ensures the iframe covers the full button width; the
+      // overlay container clips it with overflow:hidden.
+      window.google.accounts.id.renderButton(gisOverlayRef.current, {
+        type:  'standard',
+        size:  'large',
+        width: 400,
       })
+
+      // MutationObserver fires once the GIS iframe/button appears in the DOM
+      const observer = new MutationObserver(() => {
+        if (gisOverlayRef.current?.firstChild) {
+          observer.disconnect()
+          console.log('[GIS] Hidden overlay button rendered — Google button ready')
+          setGisReady(true)
+        }
+      })
+      observer.observe(gisOverlayRef.current, { childList: true, subtree: true })
+
+      // Fallback: if MutationObserver never fires (e.g. SSR quirk), mark ready
+      setTimeout(() => setGisReady(r => { if (!r) console.log('[GIS] Fallback ready timer fired'); return true }), 3000)
     }
 
     if (window.google?.accounts?.id) {
+      console.log('[GIS] Script already loaded, skipping fetch')
       initGis()
       return
     }
 
     const existing = document.querySelector<HTMLScriptElement>('script[src*="accounts.google.com/gsi"]')
     if (existing) {
+      console.log('[GIS] Script tag already in DOM, waiting for load…')
       existing.addEventListener('load', initGis, { once: true })
       return () => existing.removeEventListener('load', initGis)
     }
 
+    console.log('[GIS] Injecting script tag…')
     const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
+    script.src   = 'https://accounts.google.com/gsi/client'
     script.async = true
     script.defer = true
-    script.onload = initGis
+    script.onload = () => {
+      console.log('[GIS] Script loaded ✓')
+      initGis()
+    }
     document.head.appendChild(script)
     return () => { script.onload = null }
   }, [])
@@ -124,16 +160,6 @@ function LoginForm() {
   useEffect(() => {
     if (!isLoading && isLoggedIn) router.replace(from)
   }, [isLoggedIn, isLoading, router, from])
-
-  // Click the GIS-rendered button inside the hidden container
-  function handleGoogleClick() {
-    const btn = gisRef.current?.querySelector<HTMLElement>('div[role=button]')
-    if (btn) {
-      btn.click()
-    } else {
-      setError('Google sign-in is still initializing — please try again in a moment')
-    }
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -177,27 +203,74 @@ function LoginForm() {
             </div>
           )}
 
-          {/* Hidden off-screen container — GIS renders its button here so we can click it */}
-          <div
-            ref={gisRef}
-            aria-hidden="true"
-            style={{ position: 'fixed', top: 0, left: '-9999px', width: '220px', height: '44px' }}
-          />
-
           {/* OAuth buttons */}
           <div className="space-y-2 mb-4">
-            {/* Google — GIS token flow (no redirect, no client secret required) */}
-            <button
-              onClick={handleGoogleClick}
-              disabled={busy}
-              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all duration-150 disabled:opacity-60"
-              style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-              onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = 'rgba(139,92,246,0.4)' }}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+
+            {/* ── Google button ──────────────────────────────────────────────────
+                Two layers stacked inside a relative wrapper:
+                  1. Visual div — our custom styled button (pointer-events:none)
+                  2. GIS overlay div — opacity:0, covers the visual layer exactly.
+                     The GIS library renders an iframe/button into this div.
+                     The user's click lands on the GIS button directly (genuine
+                     user gesture) which allows the browser popup to open.
+                When GIS hasn't rendered yet, a semi-transparent blocker div
+                sits on top and shows a "loading" cursor + friendly message.
+            ──────────────────────────────────────────────────────────────────── */}
+            <div
+              className="relative w-full"
+              style={{ cursor: gisReady && !busy ? 'pointer' : 'default' }}
+              onMouseEnter={() => setGoogleHovered(true)}
+              onMouseLeave={() => setGoogleHovered(false)}
             >
-              {gisLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
-              Continue with Google
-            </button>
+              {/* Visual layer (our styling) */}
+              <div
+                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium select-none transition-all duration-150"
+                style={{
+                  background:   'var(--input-bg)',
+                  borderColor:  googleHovered && gisReady && !busy ? 'rgba(139,92,246,0.4)' : 'var(--border)',
+                  color:        'var(--text-primary)',
+                  opacity:      busy ? 0.6 : 1,
+                  pointerEvents: 'none', // GIS overlay handles all pointer events
+                }}
+              >
+                {gisLoading
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <GoogleIcon />
+                }
+                Continue with Google
+                {!gisReady && !gisLoading && (
+                  <span className="ml-auto text-xs" style={{ color: 'var(--text-dim)', opacity: 0.7 }}>loading…</span>
+                )}
+              </div>
+
+              {/* GIS overlay — transparent, receives the user's click directly */}
+              <div
+                ref={gisOverlayRef}
+                style={{
+                  position:      'absolute',
+                  inset:         0,
+                  overflow:      'hidden',
+                  opacity:       0,          // invisible; opacity:0 still receives pointer events
+                  pointerEvents: gisReady && !busy ? 'auto' : 'none',
+                  borderRadius:  '0.75rem',  // match rounded-xl so click area is correct
+                }}
+              />
+
+              {/* Blocker shown while GIS is not yet ready — intercepts clicks, shows tooltip */}
+              {(!gisReady || busy) && (
+                <div
+                  style={{
+                    position:  'absolute',
+                    inset:     0,
+                    cursor:    gisReady ? 'default' : 'wait',
+                  }}
+                  onClick={() => {
+                    if (!gisReady && !gisLoading)
+                      setError('Google login is loading. Try again in a few seconds.')
+                  }}
+                />
+              )}
+            </div>
 
             {/* Microsoft and GitHub — server-side redirect flow */}
             {([
