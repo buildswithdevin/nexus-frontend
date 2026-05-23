@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Eye, EyeOff, Loader2, Sparkles, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
-import { oauthRedirect } from '@/lib/api'
+import { oauthRedirect, googleGisToken, setToken } from '@/lib/api'
+import { GOOGLE_CLIENT_ID } from '@/lib/google-gis'
 
 // ── OAuth provider icons (inline SVG) ────────────────────────────────────────
 
@@ -46,13 +47,74 @@ function LoginForm() {
   const searchParams = useSearchParams()
   const { login, isLoggedIn, isLoading } = useAuth()
 
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
-  const [showPw,   setShowPw]   = useState(false)
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState('')
+  const [email,      setEmail]      = useState('')
+  const [password,   setPassword]   = useState('')
+  const [showPw,     setShowPw]     = useState(false)
+  const [loading,    setLoading]    = useState(false)
+  const [gisLoading, setGisLoading] = useState(false)
+  const [error,      setError]      = useState('')
 
   const from = searchParams.get('from') || '/app'
+
+  // Refs so the once-registered GIS callback always has the latest values
+  const gisRef    = useRef<HTMLDivElement>(null)
+  const routerRef = useRef(router)
+  const fromRef   = useRef(from)
+  routerRef.current = router
+  fromRef.current   = from
+
+  // Keep the GIS credential handler up to date without re-initialising GIS
+  const gisHandlerRef = useRef(async (_credential: string) => {})
+  useEffect(() => {
+    gisHandlerRef.current = async (credential: string) => {
+      setGisLoading(true)
+      setError('')
+      try {
+        const data = await googleGisToken(credential)
+        setToken(data.token)
+        routerRef.current.replace(fromRef.current)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Google sign-in failed')
+        setGisLoading(false)
+      }
+    }
+  })
+
+  // Load GIS script once and render a button into the hidden container
+  useEffect(() => {
+    function initGis() {
+      if (!gisRef.current || !window.google?.accounts?.id) return
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (res) => gisHandlerRef.current(res.credential),
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      })
+      window.google.accounts.id.renderButton(gisRef.current, {
+        type: 'standard',
+        size: 'large',
+      })
+    }
+
+    if (window.google?.accounts?.id) {
+      initGis()
+      return
+    }
+
+    const existing = document.querySelector<HTMLScriptElement>('script[src*="accounts.google.com/gsi"]')
+    if (existing) {
+      existing.addEventListener('load', initGis, { once: true })
+      return () => existing.removeEventListener('load', initGis)
+    }
+
+    const script = document.createElement('script')
+    script.src = 'https://accounts.google.com/gsi/client'
+    script.async = true
+    script.defer = true
+    script.onload = initGis
+    document.head.appendChild(script)
+    return () => { script.onload = null }
+  }, [])
 
   useEffect(() => {
     const urlError = searchParams.get('error')
@@ -62,6 +124,16 @@ function LoginForm() {
   useEffect(() => {
     if (!isLoading && isLoggedIn) router.replace(from)
   }, [isLoggedIn, isLoading, router, from])
+
+  // Click the GIS-rendered button inside the hidden container
+  function handleGoogleClick() {
+    const btn = gisRef.current?.querySelector<HTMLElement>('div[role=button]')
+    if (btn) {
+      btn.click()
+    } else {
+      setError('Google sign-in is still initializing — please try again in a moment')
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -77,6 +149,8 @@ function LoginForm() {
       setLoading(false)
     }
   }
+
+  const busy = loading || gisLoading
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--bg-primary)' }}>
@@ -103,19 +177,40 @@ function LoginForm() {
             </div>
           )}
 
+          {/* Hidden off-screen container — GIS renders its button here so we can click it */}
+          <div
+            ref={gisRef}
+            aria-hidden="true"
+            style={{ position: 'fixed', top: 0, left: '-9999px', width: '220px', height: '44px' }}
+          />
+
           {/* OAuth buttons */}
           <div className="space-y-2 mb-4">
-            {[
-              { provider: 'google'    as const, label: 'Continue with Google',    Icon: GoogleIcon    },
+            {/* Google — GIS token flow (no redirect, no client secret required) */}
+            <button
+              onClick={handleGoogleClick}
+              disabled={busy}
+              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all duration-150 disabled:opacity-60"
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = 'rgba(139,92,246,0.4)' }}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+            >
+              {gisLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
+              Continue with Google
+            </button>
+
+            {/* Microsoft and GitHub — server-side redirect flow */}
+            {([
               { provider: 'microsoft' as const, label: 'Continue with Microsoft', Icon: MicrosoftIcon },
               { provider: 'github'    as const, label: 'Continue with GitHub',    Icon: GitHubIcon    },
-            ].map(({ provider, label, Icon }) => (
+            ] as const).map(({ provider, label, Icon }) => (
               <button
                 key={provider}
                 onClick={() => oauthRedirect(provider)}
-                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all duration-150"
+                disabled={busy}
+                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all duration-150 disabled:opacity-60"
                 style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(139,92,246,0.4)')}
+                onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = 'rgba(139,92,246,0.4)' }}
                 onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}
               >
                 <Icon />
@@ -164,7 +259,7 @@ function LoginForm() {
               </div>
             </div>
 
-            <button type="submit" disabled={loading || !email || !password}
+            <button type="submit" disabled={busy || !email || !password}
               className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2"
               style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sign In'}

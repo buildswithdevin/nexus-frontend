@@ -735,6 +735,24 @@ export async function authGetMe(): Promise<AuthUser | null> {
   }
 }
 
+export async function googleGisToken(credential: string): Promise<{ token: string }> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/auth/google/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential }),
+    })
+  } catch (err) {
+    throw diagnoseNetworkError(err, '/api/auth/google/token')
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Google sign-in failed' }))
+    throw new Error(err.detail || 'Google sign-in failed')
+  }
+  return res.json()
+}
+
 export async function authUpdateMe(updates: {
   display_name?: string
   username?:     string
